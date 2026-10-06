@@ -8,6 +8,11 @@ const toggleForm = document.querySelector('#toggle-form');
 const catalogView = document.querySelector('#board-catalog-view');
 const boardDetail = document.querySelector('#board-detail');
 const boardList = document.querySelector('#board-list');
+const accessRequestPanel = document.querySelector('#access-request-panel');
+const accessRequestForm = document.querySelector('#access-request-form');
+const accessRequestStatus = document.querySelector('#access-request-status');
+const pendingRequestsPanel = document.querySelector('#pending-requests-panel');
+const pendingRequestsList = document.querySelector('#pending-requests');
 
 function showForm(mode) {
   const registering = mode === 'register';
@@ -68,7 +73,38 @@ async function loadBoard(boardId) {
   content.replaceChildren();
   if (!board.isMember) {
     document.querySelector('#board-access-message').textContent = 'Este quadro existe, mas você ainda não é membro. O conteúdo não foi carregado.';
+    pendingRequestsPanel.hidden = true;
+    accessRequestPanel.hidden = false;
+    const { pending } = await requestJson(`/api/boards/${encodeURIComponent(boardId)}/access-request`);
+    accessRequestForm.hidden = pending;
+    accessRequestStatus.textContent = pending ? 'Seu pedido está aguardando a aprovação de um membro.' : '';
     return;
+  }
+
+  accessRequestPanel.hidden = true;
+  pendingRequestsPanel.hidden = false;
+  const { requests } = await requestJson(`/api/boards/${encodeURIComponent(boardId)}/access-requests`);
+  pendingRequestsList.replaceChildren();
+  for (const pending of requests) {
+    const item = document.createElement('li');
+    const accept = document.createElement('button');
+    accept.type = 'button';
+    accept.textContent = `Aceitar pedido de ${pending.username}`;
+    accept.addEventListener('click', async () => {
+      try {
+        await requestJson(`/api/boards/${encodeURIComponent(boardId)}/access-requests/${encodeURIComponent(pending.accountId)}/accept`, { method: 'POST' });
+        await loadBoard(boardId);
+      } catch (error) {
+        message.textContent = error.message;
+      }
+    });
+    item.append(accept);
+    pendingRequestsList.append(item);
+  }
+  if (!requests.length) {
+    const item = document.createElement('li');
+    item.textContent = 'Nenhum pedido pendente.';
+    pendingRequestsList.append(item);
   }
 
   const result = await requestJson(`/api/boards/${encodeURIComponent(boardId)}/content`);
@@ -84,6 +120,19 @@ async function loadBoard(boardId) {
     content.append(item);
   }
 }
+
+accessRequestForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const boardMatch = location.pathname.match(/^\/boards\/([^/]+)\/?$/);
+  if (!boardMatch) return;
+  try {
+    await requestJson(`/api/boards/${encodeURIComponent(decodeURIComponent(boardMatch[1]))}/access-requests`, { method: 'POST' });
+    accessRequestForm.hidden = true;
+    accessRequestStatus.textContent = 'Seu pedido está aguardando a aprovação de um membro.';
+  } catch (error) {
+    message.textContent = error.message;
+  }
+});
 
 async function showAccount(account) {
   authPanel.hidden = true;

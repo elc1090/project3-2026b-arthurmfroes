@@ -54,6 +54,16 @@
           <p><a href="/">← Voltar ao catálogo</a></p>
           <h2 id="board-title"></h2>
           <p id="board-access-message" role="status"></p>
+          <section id="access-request-panel" hidden>
+            <p id="access-request-status"></p>
+            <form id="access-request-form">
+              <button type="submit">Solicitar acesso</button>
+            </form>
+          </section>
+          <section id="pending-requests-panel" hidden>
+            <h3>Pedidos de acesso</h3>
+            <ul id="pending-requests"></ul>
+          </section>
           <ul id="board-content"></ul>
         </section>
         <button id="logout-button" type="button">Sair</button>

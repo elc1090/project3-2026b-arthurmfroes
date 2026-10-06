@@ -16,6 +16,31 @@ function boardSummary(row) {
   };
 }
 
+/** Shared membership gate for board content and future asset/sync routes. */
+export function authorizeBoardMembership(db, boardId, accountId) {
+  const board = db.prepare('SELECT id, title FROM boards WHERE id = ?').get(boardId);
+  if (!board) return { status: 'not_found' };
+  const membership = db.prepare(`
+    SELECT board_id, account_id, joined_at
+    FROM memberships WHERE board_id = ? AND account_id = ?
+  `).get(boardId, accountId);
+  return membership
+    ? { status: 'authorized', board, membership }
+    : { status: 'forbidden', board };
+}
+
+function sendBoardAuthorizationError(response, authorization) {
+  if (authorization.status === 'not_found') {
+    sendJson(response, 404, { error: 'Quadro não encontrado.' });
+    return true;
+  }
+  if (authorization.status === 'forbidden') {
+    sendJson(response, 403, { error: 'Você ainda não é membro deste quadro.' });
+    return true;
+  }
+  return false;
+}
+
 export async function handleBoardRequest(request, response, db, updateStore) {
   const url = new URL(request.url, 'http://localhost');
   if (!url.pathname.startsWith('/api/boards')) return false;
@@ -72,6 +97,103 @@ export async function handleBoardRequest(request, response, db, updateStore) {
     return true;
   }
 
+  const requestsMatch = url.pathname.match(/^\/api\/boards\/([^/]+)\/access-requests$/);
+  if (requestsMatch) {
+    let boardId;
+    try {
+      boardId = decodeURIComponent(requestsMatch[1]);
+    } catch {
+      sendJson(response, 400, { error: 'ID de quadro inválido.' });
+      return true;
+    }
+    if (request.method === 'POST') {
+      const authorization = authorizeBoardMembership(db, boardId, session.accountId);
+      if (authorization.status === 'not_found') {
+        sendBoardAuthorizationError(response, authorization);
+        return true;
+      }
+      if (authorization.status === 'authorized') {
+        sendJson(response, 409, { error: 'Você já é membro deste quadro.' });
+        return true;
+      }
+      const result = db.prepare(`
+        INSERT OR IGNORE INTO access_requests (board_id, account_id) VALUES (?, ?)
+      `).run(boardId, session.accountId);
+      sendJson(response, result.changes ? 201 : 200, { pending: true });
+      return true;
+    }
+
+    if (request.method === 'GET') {
+      const authorization = authorizeBoardMembership(db, boardId, session.accountId);
+      if (sendBoardAuthorizationError(response, authorization)) return true;
+      const requests = db.prepare(`
+        SELECT access_requests.account_id AS accountId, accounts.username, access_requests.requested_at AS requestedAt
+        FROM access_requests JOIN accounts ON accounts.id = access_requests.account_id
+        WHERE access_requests.board_id = ?
+        ORDER BY access_requests.requested_at, accounts.username
+      `).all(boardId);
+      sendJson(response, 200, { requests });
+      return true;
+    }
+
+    response.writeHead(405, { allow: 'GET, POST' }).end();
+    return true;
+  }
+
+  const ownRequestMatch = url.pathname.match(/^\/api\/boards\/([^/]+)\/access-request$/);
+  if (ownRequestMatch && request.method === 'GET') {
+    let boardId;
+    try {
+      boardId = decodeURIComponent(ownRequestMatch[1]);
+    } catch {
+      sendJson(response, 400, { error: 'ID de quadro inválido.' });
+      return true;
+    }
+    const authorization = authorizeBoardMembership(db, boardId, session.accountId);
+    if (authorization.status === 'not_found') {
+      sendBoardAuthorizationError(response, authorization);
+      return true;
+    }
+    const pending = authorization.status === 'forbidden' && Boolean(db.prepare(`
+      SELECT 1 FROM access_requests WHERE board_id = ? AND account_id = ?
+    `).get(boardId, session.accountId));
+    sendJson(response, 200, { pending });
+    return true;
+  }
+
+  const acceptMatch = url.pathname.match(/^\/api\/boards\/([^/]+)\/access-requests\/([^/]+)\/accept$/);
+  if (acceptMatch && request.method === 'POST') {
+    let boardId;
+    let accountId;
+    try {
+      boardId = decodeURIComponent(acceptMatch[1]);
+      accountId = decodeURIComponent(acceptMatch[2]);
+    } catch {
+      sendJson(response, 400, { error: 'ID inválido.' });
+      return true;
+    }
+    const authorization = authorizeBoardMembership(db, boardId, session.accountId);
+    if (sendBoardAuthorizationError(response, authorization)) return true;
+
+    const acceptRequest = db.transaction(() => {
+      const pending = db.prepare(`
+        SELECT 1 FROM access_requests WHERE board_id = ? AND account_id = ?
+      `).get(boardId, accountId);
+      if (!pending) return false;
+      db.prepare('INSERT OR IGNORE INTO memberships (board_id, account_id) VALUES (?, ?)')
+        .run(boardId, accountId);
+      db.prepare('DELETE FROM access_requests WHERE board_id = ? AND account_id = ?')
+        .run(boardId, accountId);
+      return true;
+    });
+    if (!acceptRequest()) {
+      sendJson(response, 404, { error: 'Pedido pendente não encontrado.' });
+      return true;
+    }
+    sendJson(response, 200, { accepted: true, boardId, accountId });
+    return true;
+  }
+
   const metadataMatch = url.pathname.match(/^\/api\/boards\/([^/]+)$/);
   if (metadataMatch && request.method === 'GET') {
     let boardId;
@@ -103,18 +225,8 @@ export async function handleBoardRequest(request, response, db, updateStore) {
       sendJson(response, 400, { error: 'ID de quadro inválido.' });
       return true;
     }
-    const board = db.prepare(`
-      SELECT EXISTS(SELECT 1 FROM boards WHERE id = ?) AS exists_board,
-        EXISTS(SELECT 1 FROM memberships WHERE board_id = ? AND account_id = ?) AS is_member
-    `).get(boardId, boardId, session.accountId);
-    if (!board.exists_board) {
-      sendJson(response, 404, { error: 'Quadro não encontrado.' });
-      return true;
-    }
-    if (!board.is_member) {
-      sendJson(response, 403, { error: 'Você ainda não é membro deste quadro.' });
-      return true;
-    }
+    const authorization = authorizeBoardMembership(db, boardId, session.accountId);
+    if (sendBoardAuthorizationError(response, authorization)) return true;
 
     const doc = updateStore.loadDocument(boardId);
     try {
