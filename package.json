@@ -8,7 +8,7 @@
   },
   "scripts": {
     "start": "node src/server/main.js",
-    "smoke": "node --test test/foundation.smoke.test.js test/auth.smoke.test.js"
+    "smoke": "node --test test/foundation.smoke.test.js test/auth.smoke.test.js test/boards.smoke.test.js"
   },
   "dependencies": {
     "argon2": "0.44.0",

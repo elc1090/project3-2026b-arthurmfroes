@@ -16,6 +16,10 @@
       button.secondary { background: transparent; color: #1d4ed8; }
       [hidden] { display: none !important; }
       #message { min-height: 1.5em; }
+      #board-list { padding-left: 1.3rem; }
+      #board-list li { margin: .55rem 0; }
+      #board-detail { border-top: 1px solid #e2e8f0; margin-top: 1.5rem; padding-top: .5rem; }
+      #board-content { max-height: 24rem; overflow: auto; padding: .75rem; background: #f8fafc; border-radius: .5rem; }
     </style>
   </head>
   <body>
@@ -37,7 +41,21 @@
       </section>
       <section id="account-panel" hidden>
         <p>Conectado como <strong id="account-name"></strong>.</p>
-        <p>O quadro colaborativo será carregado aqui.</p>
+        <section id="board-catalog-view">
+          <h2>Quadros</h2>
+          <form id="create-board-form">
+            <label>Novo quadro<input name="title" maxlength="100" placeholder="Ex.: Revisão de arquitetura" required></label>
+            <button type="submit">Criar quadro</button>
+          </form>
+          <label>Buscar quadros<input id="board-search" type="search" placeholder="Filtrar pelo título"></label>
+          <ul id="board-list"></ul>
+        </section>
+        <section id="board-detail" hidden>
+          <p><a href="/">← Voltar ao catálogo</a></p>
+          <h2 id="board-title"></h2>
+          <p id="board-access-message" role="status"></p>
+          <ul id="board-content"></ul>
+        </section>
         <button id="logout-button" type="button">Sair</button>
       </section>
       <p id="message" role="status" aria-live="polite"></p>

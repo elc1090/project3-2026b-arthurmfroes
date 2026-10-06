@@ -16,7 +16,7 @@ function sendJson(response, status, body, headers = {}) {
   response.end(JSON.stringify(body));
 }
 
-async function readJson(request) {
+export async function readJsonBody(request) {
   const declaredLength = Number(request.headers['content-length'] ?? 0);
   if (declaredLength > 8_192) throw Object.assign(new Error('Request body too large'), { status: 413 });
 
@@ -56,6 +56,18 @@ function tokenHash(token) {
   return createHash('sha256').update(token).digest('hex');
 }
 
+export function getAuthenticatedSession(request, db) {
+  const token = sessionTokenFrom(request);
+  if (!token) return null;
+  const sessionId = tokenHash(token);
+  const account = db.prepare(`
+    SELECT accounts.id, accounts.username
+    FROM sessions JOIN accounts ON accounts.id = sessions.account_id
+    WHERE sessions.id = ? AND sessions.expires_at > ?
+  `).get(sessionId, new Date().toISOString());
+  return account ? { sessionId, accountId: account.id, username: account.username } : null;
+}
+
 function isHttps(request, trustProxy) {
   if (request.socket.encrypted) return true;
   if (!trustProxy) return false;
@@ -85,26 +97,17 @@ export async function handleAuthRequest(request, response, db, { trustProxy = fa
   }
 
   if (pathname === '/api/auth/session') {
-    const token = sessionTokenFrom(request);
-    if (!token) {
-      sendJson(response, 200, { authenticated: false });
-      return true;
-    }
-    const session = db.prepare(`
-      SELECT accounts.id, accounts.username
-      FROM sessions JOIN accounts ON accounts.id = sessions.account_id
-      WHERE sessions.id = ? AND sessions.expires_at > ?
-    `).get(tokenHash(token), new Date().toISOString());
+    const session = getAuthenticatedSession(request, db);
     if (!session) {
       sendJson(response, 200, { authenticated: false });
       return true;
     }
-    sendJson(response, 200, { authenticated: true, account: session });
+    sendJson(response, 200, { authenticated: true, account: { id: session.accountId, username: session.username } });
     return true;
   }
 
   try {
-    const body = await readJson(request);
+    const body = await readJsonBody(request);
     if (pathname === '/api/auth/register') {
       const username = normalizeUsername(body?.username);
       if (!username || !validPassword(body?.password)) {

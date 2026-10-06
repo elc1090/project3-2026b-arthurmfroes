@@ -28,7 +28,7 @@ When multiple implementers share this uncommitted working tree, assign exclusive
 ## 2. Accounts, boards, and membership
 
 - [x] 2.1 Implement username/password registration, Argon2id hashes with per-account salts, sign-in, sign-out, and secure sessions; verify registration without email, invalid-login rejection, cookie flags, and absence of plaintext passwords with automated tests.
-- [ ] 2.2 Implement board creation, stable board links, and the searchable board catalog; verify two boards retain separate titles, memberships, and content through a server restart.
+- [x] 2.2 Implement board creation, stable board links, and the searchable board catalog; verify two boards retain separate titles, memberships, and content through a server restart.
 - [ ] 2.3 Implement pending access requests and acceptance by any current member; verify a nonmember can discover a board but cannot fetch content, images, or sync messages before acceptance.
 - [ ] 2.4 Implement persistent membership and revocation by any other member, including revocation of the creator; verify a revoked session cannot use board APIs or reconnect to board synchronization.
 

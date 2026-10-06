@@ -4,6 +4,8 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import { handleAuthRequest } from './auth.js';
+import { handleBoardRequest } from './boards.js';
+import { createBoardUpdateStore } from './board-update-store.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
@@ -53,9 +55,11 @@ const contentTypes = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; c
 
 export async function createAppServer(options = {}) {
   const db = options.db ?? await openDatabase();
+  const boardUpdateStore = options.boardUpdateStore ?? createBoardUpdateStore(db);
   const trustProxy = options.trustProxy ?? process.env.TRUST_PROXY === 'true';
   return createServer(async (request, response) => {
     if (await handleAuthRequest(request, response, db, { trustProxy })) return;
+    if (await handleBoardRequest(request, response, db, boardUpdateStore)) return;
 
     if (request.method === 'GET' && request.url === '/health') {
       response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
@@ -65,7 +69,11 @@ export async function createAppServer(options = {}) {
 
     let requestedPath;
     try {
-      requestedPath = request.url === '/' ? 'index.html' : decodeURIComponent(request.url.slice(1).split('?')[0]);
+      const path = request.url.split('?')[0];
+      const isBoardLink = /^\/boards\/[^/]+\/?$/.test(path);
+      requestedPath = request.url === '/' || isBoardLink
+        ? 'index.html'
+        : decodeURIComponent(request.url.slice(1).split('?')[0]);
     } catch {
       response.writeHead(400).end();
       return;
