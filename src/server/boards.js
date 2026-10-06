@@ -161,6 +161,70 @@ export async function handleBoardRequest(request, response, db, updateStore) {
     return true;
   }
 
+  const membersMatch = url.pathname.match(/^\/api\/boards\/([^/]+)\/members$/);
+  if (membersMatch && request.method === 'GET') {
+    let boardId;
+    try {
+      boardId = decodeURIComponent(membersMatch[1]);
+    } catch {
+      sendJson(response, 400, { error: 'ID de quadro inválido.' });
+      return true;
+    }
+    const authorization = authorizeBoardMembership(db, boardId, session.accountId);
+    if (sendBoardAuthorizationError(response, authorization)) return true;
+    const members = db.prepare(`
+      SELECT accounts.id AS accountId, accounts.username, memberships.joined_at AS joinedAt
+      FROM memberships JOIN accounts ON accounts.id = memberships.account_id
+      WHERE memberships.board_id = ?
+      ORDER BY memberships.joined_at, accounts.username
+    `).all(boardId);
+    sendJson(response, 200, { members });
+    return true;
+  }
+
+  const revokeMatch = url.pathname.match(/^\/api\/boards\/([^/]+)\/members\/([^/]+)\/revoke$/);
+  if (revokeMatch && request.method === 'POST') {
+    let boardId;
+    let targetAccountId;
+    try {
+      boardId = decodeURIComponent(revokeMatch[1]);
+      targetAccountId = decodeURIComponent(revokeMatch[2]);
+    } catch {
+      sendJson(response, 400, { error: 'ID inválido.' });
+      return true;
+    }
+
+    const revokeMembership = db.transaction(() => {
+      const authorization = authorizeBoardMembership(db, boardId, session.accountId);
+      if (authorization.status !== 'authorized') return authorization.status;
+      if (targetAccountId === session.accountId) return 'self';
+      const target = db.prepare(`
+        SELECT 1 FROM memberships WHERE board_id = ? AND account_id = ?
+      `).get(boardId, targetAccountId);
+      if (!target) return 'target_not_member';
+
+      db.prepare('DELETE FROM memberships WHERE board_id = ? AND account_id = ?')
+        .run(boardId, targetAccountId);
+      const { epoch } = db.prepare(`
+        UPDATE boards SET epoch = epoch + 1 WHERE id = ? RETURNING epoch
+      `).get(boardId);
+      return { epoch };
+    });
+    const result = revokeMembership();
+    if (result === 'not_found') {
+      sendJson(response, 404, { error: 'Quadro não encontrado.' });
+    } else if (result === 'forbidden') {
+      sendJson(response, 403, { error: 'Você não é membro deste quadro.' });
+    } else if (result === 'self') {
+      sendJson(response, 400, { error: 'Você não pode revogar a própria membership.' });
+    } else if (result === 'target_not_member') {
+      sendJson(response, 404, { error: 'A pessoa não é membro deste quadro.' });
+    } else {
+      sendJson(response, 200, { revoked: true, boardId, accountId: targetAccountId, epoch: result.epoch });
+    }
+    return true;
+  }
+
   const acceptMatch = url.pathname.match(/^\/api\/boards\/([^/]+)\/access-requests\/([^/]+)\/accept$/);
   if (acceptMatch && request.method === 'POST') {
     let boardId;

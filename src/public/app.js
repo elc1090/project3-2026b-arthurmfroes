@@ -13,6 +13,9 @@ const accessRequestForm = document.querySelector('#access-request-form');
 const accessRequestStatus = document.querySelector('#access-request-status');
 const pendingRequestsPanel = document.querySelector('#pending-requests-panel');
 const pendingRequestsList = document.querySelector('#pending-requests');
+const membersPanel = document.querySelector('#members-panel');
+const membersList = document.querySelector('#board-members');
+let currentAccountId = null;
 
 function showForm(mode) {
   const registering = mode === 'register';
@@ -74,6 +77,7 @@ async function loadBoard(boardId) {
   if (!board.isMember) {
     document.querySelector('#board-access-message').textContent = 'Este quadro existe, mas você ainda não é membro. O conteúdo não foi carregado.';
     pendingRequestsPanel.hidden = true;
+    membersPanel.hidden = true;
     accessRequestPanel.hidden = false;
     const { pending } = await requestJson(`/api/boards/${encodeURIComponent(boardId)}/access-request`);
     accessRequestForm.hidden = pending;
@@ -83,6 +87,31 @@ async function loadBoard(boardId) {
 
   accessRequestPanel.hidden = true;
   pendingRequestsPanel.hidden = false;
+  membersPanel.hidden = false;
+  const { members } = await requestJson(`/api/boards/${encodeURIComponent(boardId)}/members`);
+  membersList.replaceChildren();
+  for (const member of members) {
+    const item = document.createElement('li');
+    item.append(document.createTextNode(member.username));
+    if (member.accountId === currentAccountId) {
+      item.append(document.createTextNode(' (você)'));
+    } else {
+      const revoke = document.createElement('button');
+      revoke.type = 'button';
+      revoke.textContent = 'Revogar acesso';
+      revoke.addEventListener('click', async () => {
+        try {
+          await requestJson(`/api/boards/${encodeURIComponent(boardId)}/members/${encodeURIComponent(member.accountId)}/revoke`, { method: 'POST' });
+          await loadBoard(boardId);
+        } catch (error) {
+          message.textContent = error.message;
+        }
+      });
+      item.append(' ', revoke);
+    }
+    membersList.append(item);
+  }
+
   const { requests } = await requestJson(`/api/boards/${encodeURIComponent(boardId)}/access-requests`);
   pendingRequestsList.replaceChildren();
   for (const pending of requests) {
@@ -138,6 +167,7 @@ async function showAccount(account) {
   authPanel.hidden = true;
   accountPanel.hidden = false;
   document.querySelector('#account-name').textContent = account.username;
+  currentAccountId = account.id;
   message.textContent = '';
   const boardMatch = location.pathname.match(/^\/boards\/([^/]+)\/?$/);
   if (boardMatch) {

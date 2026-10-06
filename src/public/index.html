@@ -20,6 +20,7 @@
       #board-list li { margin: .55rem 0; }
       #board-detail { border-top: 1px solid #e2e8f0; margin-top: 1.5rem; padding-top: .5rem; }
       #board-content { max-height: 24rem; overflow: auto; padding: .75rem; background: #f8fafc; border-radius: .5rem; }
+      #board-members li { margin: .55rem 0; }
     </style>
   </head>
   <body>
@@ -63,6 +64,10 @@
           <section id="pending-requests-panel" hidden>
             <h3>Pedidos de acesso</h3>
             <ul id="pending-requests"></ul>
+          </section>
+          <section id="members-panel" hidden>
+            <h3>Membros</h3>
+            <ul id="board-members"></ul>
           </section>
           <ul id="board-content"></ul>
         </section>
