@@ -80,7 +80,7 @@ test('a remote Yjs update renders once and never creates a Canvas-origin update'
     if (origin === CANVAS_ORIGIN) canvasEditCount += 1;
   });
   addElement(remoteDoc, {
-    id: 'remote-rect', type: 'rectangle',
+    id: 'remote-rect', type: 'rect',
     geometry: { x: 2, y: 3, width: 40, height: 25 },
     style: { color: '#f00' },
   });
