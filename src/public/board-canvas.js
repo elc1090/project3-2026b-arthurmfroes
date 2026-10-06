@@ -52,6 +52,74 @@ function elementBounds(element) {
   return null;
 }
 
+function boardElementsBounds(elements) {
+  const bounds = elements.map(elementBounds).filter(Boolean);
+  if (bounds.length === 0) return null;
+  const minX = Math.min(...bounds.map(item => item.x));
+  const minY = Math.min(...bounds.map(item => item.y));
+  const maxX = Math.max(...bounds.map(item => item.x + item.width));
+  const maxY = Math.max(...bounds.map(item => item.y + item.height));
+  return { minX, minY, width: maxX - minX, height: maxY - minY };
+}
+
+/** Render durable Yjs elements to an export canvas, excluding local pending previews. */
+export async function renderBoardSnapshot(doc, boardId, {
+  loadImage = loadBoardImageAsset,
+  documentRef = globalThis.document,
+  padding = 50,
+  minWidth = 1200,
+  minHeight = 800,
+  gridSize = 30,
+} = {}) {
+  const elements = readBoardElements(doc);
+  const bounds = boardElementsBounds(elements) ?? { minX: 0, minY: 0, width: 800, height: 480 };
+  const width = Math.max(minWidth, Math.ceil(bounds.width + padding * 2));
+  const height = Math.max(minHeight, Math.ceil(bounds.height + padding * 2));
+  const canvas = documentRef.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Não foi possível criar o Canvas de exportação.');
+
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, width, height);
+  context.strokeStyle = 'rgba(226, 232, 240, 0.6)';
+  context.lineWidth = 1;
+  for (let x = 0; x < width; x += gridSize) {
+    context.beginPath();
+    context.moveTo(x, 0);
+    context.lineTo(x, height);
+    context.stroke();
+  }
+  for (let y = 0; y < height; y += gridSize) {
+    context.beginPath();
+    context.moveTo(0, y);
+    context.lineTo(width, y);
+    context.stroke();
+  }
+
+  const imageBitmaps = new Map();
+  try {
+    const assetIds = [...new Set(elements.filter(element => element.type === 'image').map(element => element.data.assetId))];
+    for (const assetId of assetIds) imageBitmaps.set(assetId, await loadImage(boardId, assetId));
+    context.save();
+    context.translate(-bounds.minX + padding, -bounds.minY + padding);
+    for (const element of elements) {
+      if (element.type === 'image') {
+        const bitmap = imageBitmaps.get(element.data.assetId);
+        const { x, y, width: imageWidth, height: imageHeight } = element.geometry;
+        context.drawImage(bitmap, x, y, imageWidth, imageHeight);
+      } else {
+        defaultDraw(context, element);
+      }
+    }
+    context.restore();
+    return canvas;
+  } finally {
+    for (const bitmap of imageBitmaps.values()) bitmap.close?.();
+  }
+}
+
 function translateGeometry(geometry, dx, dy) {
   const result = { ...geometry };
   for (const key of ['x', 'x1', 'x2']) if (Number.isFinite(geometry[key])) result[key] += dx;
@@ -311,19 +379,7 @@ export function bindBoardCanvas({
 
   function getBoardBounds() {
     const elements = readBoardElements(doc);
-    const bounds = elements.map(elementBounds).filter(Boolean);
-    for (const element of elements) {
-      if (element.type === 'path' && Array.isArray(element.geometry.points)) {
-        const b = elementBounds(element);
-        if (b) bounds.push(b);
-      }
-    }
-    if (bounds.length === 0) return null;
-    const minX = Math.min(...bounds.map(item => item.x));
-    const minY = Math.min(...bounds.map(item => item.y));
-    const maxX = Math.max(...bounds.map(item => item.x + item.width));
-    const maxY = Math.max(...bounds.map(item => item.y + item.height));
-    return { minX, minY, width: maxX - minX, height: maxY - minY };
+    return boardElementsBounds(elements);
   }
 
   function render() {

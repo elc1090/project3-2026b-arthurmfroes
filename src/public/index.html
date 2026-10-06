@@ -26,6 +26,29 @@
       #board-toolbar .tool-group { display: flex; flex-wrap: wrap; gap: .35rem; padding: .35rem; border: 1px solid #e2e8f0; border-radius: .6rem; }
       #board-toolbar .swatch { width: 2rem; height: 2rem; padding: 0; border: 2px solid #cbd5e1; }
       #board-toolbar .swatch[data-board-color="#ffffff"] { border-color: #64748b; }
+      #study-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin: .75rem 0; }
+      #study-toolbar button, #study-toolbar select { width: auto; }
+      #study-template-select { min-width: 16rem; }
+      #study-gallery { margin: .75rem 0; padding: 1rem; border: 1px solid #cbd5e1; border-radius: .75rem; background: #f8fafc; }
+      #study-gallery-filters { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: .8rem; }
+      #study-gallery-filters button[aria-pressed="true"], [data-study-tab][aria-selected="true"] { background: #1d4ed8; color: white; }
+      #study-template-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); gap: .6rem; }
+      .study-template-card { display: grid; gap: .5rem; padding: .8rem; background: white; border: 1px solid #cbd5e1; border-radius: .6rem; }
+      .study-template-card p { margin: 0; font-size: .85rem; color: #475569; }
+      #study-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(16rem, 21rem); gap: 1rem; align-items: start; }
+      #study-sidebar { max-height: 70vh; overflow: auto; padding: 1rem; border: 1px solid #cbd5e1; border-radius: .75rem; background: #f8fafc; }
+      #study-sidebar header, #study-feedback header { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
+      #study-sidebar header h3, #study-feedback header h3 { margin: 0; }
+      #study-sidebar-tabs { display: flex; flex-wrap: wrap; gap: .35rem; margin: .75rem 0; }
+      #study-sidebar-tabs button { width: auto; }
+      .study-tab-panel { display: none; }
+      .study-tab-panel.active { display: block; }
+      .study-reference-table { width: 100%; border-collapse: collapse; font-size: .78rem; }
+      .study-reference-table th, .study-reference-table td { padding: .35rem; text-align: left; border-bottom: 1px solid #cbd5e1; }
+      .study-formula { margin: .5rem 0; padding: .7rem; border-left: 3px solid #2563eb; background: white; }
+      #study-question-list { display: grid; gap: .4rem; }
+      .study-question-button { text-align: left; background: white; color: #1e3a8a; border: 1px solid #bfdbfe; }
+      #study-status { min-height: 1.3rem; margin: .4rem 0; color: #334155; }
       #board-image-picker { display: none; }
       #board-image-status { flex-basis: 100%; margin: 0; font-size: .9rem; }
       #board-canvas { display: block; width: 100%; max-width: 800px; height: auto; border: 1px solid #cbd5e1; background: white; touch-action: none; }
@@ -78,6 +101,35 @@
             <ul id="board-members"></ul>
           </section>
           <div id="board-workspace" hidden>
+            <div id="study-toolbar" aria-label="Ferramentas de estudo">
+              <button id="study-gallery-toggle" type="button" aria-expanded="false">Galeria de diagramas</button>
+              <label>Modelo rápido
+                <select id="study-template-select" aria-label="Selecionar modelo de estudo">
+                  <option value="">Selecione um diagrama…</option>
+                </select>
+              </label>
+              <button id="study-export-png" type="button">Baixar PNG</button>
+              <button id="study-save-image" type="button">Salvar imagem para análise</button>
+              <button id="study-sidebar-toggle" type="button" aria-expanded="false">Fórmulas &amp; FSM</button>
+            </div>
+            <p id="study-status" role="status" aria-live="polite"></p>
+            <section id="study-gallery" hidden aria-label="Galeria de diagramas">
+              <header>
+                <div><h3>Galeria de diagramas</h3><p>Escolha um template para acrescentar ao quadro.</p></div>
+                <button id="study-gallery-close" type="button" aria-label="Fechar galeria">Fechar</button>
+              </header>
+              <div id="study-gallery-filters" role="group" aria-label="Filtrar diagramas">
+                <button type="button" data-study-filter="all" aria-pressed="true">Todos</button>
+                <button type="button" data-study-filter="🏆 Prova Real (UFSM)" aria-pressed="false">Prova Real (UFSM)</button>
+                <button type="button" data-study-filter="Incompletos (Para Praticar)" aria-pressed="false">Incompletos</button>
+                <button type="button" data-study-filter="Completos (Referência)" aria-pressed="false">Completos</button>
+                <button type="button" data-study-filter="Passos Multiciclo" aria-pressed="false">Passos Multiciclo</button>
+                <button type="button" data-study-filter="Exercícios dos Slides" aria-pressed="false">Exercícios dos Slides</button>
+              </div>
+              <div id="study-template-cards" aria-live="polite"></div>
+            </section>
+            <div id="study-layout">
+              <div>
             <div id="board-toolbar" aria-label="Ferramentas do quadro">
               <button type="button" data-board-tool="select" aria-pressed="true" title="Selecionar / mover (S)">Selecionar / mover</button>
               <button type="button" data-board-tool="pen" aria-pressed="false" title="Caneta (P)">Caneta</button>
@@ -116,6 +168,51 @@
               <p id="board-image-status" data-board-image-status role="status" aria-live="polite"></p>
             </div>
             <canvas id="board-canvas" width="800" height="480" aria-label="Canvas compartilhado"></canvas>
+              </div>
+              <aside id="study-sidebar" hidden aria-label="Referência rápida para estudo">
+                <header><h3>Referência rápida</h3><button id="study-sidebar-close" type="button">Fechar</button></header>
+                <div id="study-sidebar-tabs" role="tablist" aria-label="Conteúdo de estudo">
+                  <button type="button" role="tab" id="study-tab-signals" aria-controls="study-panel-signals" aria-selected="true" data-study-tab="signals">Sinais &amp; FSM</button>
+                  <button type="button" role="tab" id="study-tab-formulas" aria-controls="study-panel-formulas" aria-selected="false" data-study-tab="formulas">Fórmulas</button>
+                  <button type="button" role="tab" id="study-tab-questions" aria-controls="study-panel-questions" aria-selected="false" data-study-tab="questions">Questões</button>
+                  <button type="button" role="tab" id="study-tab-feedback" aria-controls="study-panel-feedback" aria-selected="false" data-study-tab="feedback">Feedback</button>
+                </div>
+                <section id="study-panel-signals" class="study-tab-panel active" role="tabpanel" aria-labelledby="study-tab-signals">
+                  <h4>Sinais de controle monociclo</h4>
+                  <table class="study-reference-table">
+                    <thead><tr><th>Instrução</th><th>RegDst</th><th>ALUSrc</th><th>MemtoReg</th><th>RegWrite</th><th>MemRead</th><th>MemWrite</th><th>Branch</th><th>ALUOp</th></tr></thead>
+                    <tbody>
+                      <tr><td>R-type</td><td>1</td><td>0</td><td>0</td><td>1</td><td>0</td><td>0</td><td>0</td><td>10</td></tr>
+                      <tr><td>lw</td><td>0</td><td>1</td><td>1</td><td>1</td><td>1</td><td>0</td><td>0</td><td>00</td></tr>
+                      <tr><td>sw</td><td>X</td><td>1</td><td>X</td><td>0</td><td>0</td><td>1</td><td>0</td><td>00</td></tr>
+                      <tr><td>beq</td><td>X</td><td>0</td><td>X</td><td>0</td><td>0</td><td>0</td><td>1</td><td>01</td></tr>
+                      <tr><td>j</td><td>X</td><td>X</td><td>X</td><td>0</td><td>0</td><td>0</td><td>0</td><td>XX</td></tr>
+                    </tbody>
+                  </table>
+                  <h4>Etapas multiciclo</h4>
+                  <ol><li>Busca: IR = Mem[PC]; PC = PC + 4</li><li>Decodificação: leitura de rs/rt e cálculo do branch</li><li>Execução: ULA, endereço, branch ou jump</li><li>Memória e write-back de R-type</li><li>Write-back de lw</li></ol>
+                </section>
+                <section id="study-panel-formulas" class="study-tab-panel" role="tabpanel" aria-labelledby="study-tab-formulas" hidden>
+                  <h4>Fórmulas de desempenho</h4>
+                  <p class="study-formula"><b>Tempo de CPU</b><br><code>T = N × CPI × T_clock = (N × CPI) / f</code></p>
+                  <p class="study-formula"><b>CPI médio</b><br><code>Σ (frequência da instrução × CPI)</code></p>
+                  <p class="study-formula"><b>Multiciclo MIPS</b><br>lw: 5 ciclos · sw/R-type: 4 · beq/jump: 3</p>
+                  <p class="study-formula"><b>Speedup</b><br><code>T_monociclo / T_multiciclo</code></p>
+                  <p class="study-formula"><b>Caminho crítico monociclo</b><br><code>t_IMem + t_RegRead + t_ALU + t_DMem + t_RegWrite</code></p>
+                </section>
+                <section id="study-panel-questions" class="study-tab-panel" role="tabpanel" aria-labelledby="study-tab-questions" hidden>
+                  <h4>Questões e templates</h4>
+                  <p>Carregar um diagrama acrescenta a imagem ao quadro e preserva os elementos já existentes.</p>
+                  <div id="study-question-list"></div>
+                </section>
+                <section id="study-panel-feedback" class="study-tab-panel" role="tabpanel" aria-labelledby="study-tab-feedback" hidden>
+                  <h4>Anotações deste quadro</h4>
+                  <p>Exibe notas fornecidas para este quadro. Este fluxo não executa inferência automática.</p>
+                  <div id="study-feedback-notes" aria-live="polite">Nenhuma anotação salva.</div>
+                  <button id="study-feedback-refresh" type="button">Atualizar feedback</button>
+                </section>
+              </aside>
+            </div>
           </div>
         </section>
         <button id="logout-button" type="button">Sair</button>

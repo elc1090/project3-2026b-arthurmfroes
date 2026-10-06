@@ -1,6 +1,6 @@
 import * as Y from 'yjs';
 import { addElement, createElementId, getBoardMaps, readBoardElements, readElement } from '../shared/board-model.js';
-import { bindBoardCanvas, CANVAS_ORIGIN } from './board-canvas.js';
+import { bindBoardCanvas, CANVAS_ORIGIN, renderBoardSnapshot } from './board-canvas.js';
 import { LocalBoardHistory } from './board-undo.js';
 import {
   addImageAssetReference,
@@ -38,7 +38,7 @@ export function createBoardDocument(elements = []) {
  * Mount the minimal tools around a board document. `doc` is borrowed when
  * supplied by IndexedDB or a sync provider, and remains owned by that caller.
  */
-export function mountBoardCanvas({ boardId, canvas, toolbar, doc: suppliedDoc, elements = [] }) {
+export function mountBoardCanvas({ boardId, canvas, toolbar, doc: suppliedDoc, elements = [], onSaveBoardImage = () => {} }) {
   const ownsDoc = !suppliedDoc;
   const doc = suppliedDoc ?? createBoardDocument(elements);
   let tool = 'select';
@@ -210,6 +210,16 @@ export function mountBoardCanvas({ boardId, canvas, toolbar, doc: suppliedDoc, e
     return 'published';
   }
 
+  async function insertTemplate(template) {
+    if (!boardId) throw new Error('Abra um quadro para inserir um modelo.');
+    if (!template?.url || !template?.filename) throw new TypeError('O modelo precisa de URL e nome de arquivo.');
+    const response = await fetch(template.url, { credentials: 'same-origin', cache: 'no-store' });
+    if (!response.ok) throw new Error('Não foi possível carregar o modelo.');
+    const blob = await response.blob();
+    const file = new File([blob], template.filename, { type: blob.type || 'image/png' });
+    return insertUploadedImage(file, 'template');
+  }
+
   const onImagePickerClick = () => imagePicker?.click();
   const onImageSelected = async () => {
     const file = imagePicker?.files?.[0];
@@ -227,11 +237,7 @@ export function mountBoardCanvas({ boardId, canvas, toolbar, doc: suppliedDoc, e
     if (!boardId) return;
     try {
       if (imageStatus) imageStatus.textContent = 'Carregando modelo…';
-      const response = await fetch('/api/templates/fsm-reference', { credentials: 'same-origin', cache: 'no-store' });
-      if (!response.ok) throw new Error('Não foi possível carregar o modelo.');
-      const blob = await response.blob();
-      const file = new File([blob], 'fsm-reference.png', { type: blob.type || 'image/png' });
-      const result = await insertUploadedImage(file, 'template');
+      const result = await insertTemplate({ url: '/api/templates/fsm-reference', filename: 'fsm-reference.png' });
       if (result === 'published' && imageStatus) imageStatus.textContent = 'Modelo adicionado ao quadro.';
     } catch (error) {
       if (imageStatus) imageStatus.textContent = error.message ?? 'Não foi possível adicionar o modelo.';
@@ -293,7 +299,13 @@ export function mountBoardCanvas({ boardId, canvas, toolbar, doc: suppliedDoc, e
       return;
     }
     if ((event.ctrlKey || event.metaKey) && key === 'y') { event.preventDefault(); history.redo(); return; }
-    if ((event.ctrlKey || event.metaKey) && key === 's') { event.preventDefault(); return; }
+    if ((event.ctrlKey || event.metaKey) && key === 's') {
+      event.preventDefault();
+      void Promise.resolve(onSaveBoardImage()).catch(error => {
+        if (imageStatus) imageStatus.textContent = error.message ?? 'Não foi possível salvar a imagem do quadro.';
+      });
+      return;
+    }
     const toolsByKey = { p: 'pen', h: 'highlighter', a: 'arrow', l: 'line', r: 'rectangle', m: 'mux', u: 'alu', t: 'text', e: 'eraser', s: 'select' };
     if (toolsByKey[key]) {
       event.preventDefault();
@@ -329,6 +341,8 @@ export function mountBoardCanvas({ boardId, canvas, toolbar, doc: suppliedDoc, e
     doc,
     history,
     canvas: binding,
+    insertTemplate,
+    renderSnapshot: () => renderBoardSnapshot(doc, boardId),
     destroy() {
       binding.destroy();
       for (const [button, listener] of buttonListeners) button.removeEventListener('click', listener);

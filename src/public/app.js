@@ -17,9 +17,12 @@ const membersPanel = document.querySelector('#members-panel');
 const membersList = document.querySelector('#board-members');
 let currentAccountId = null;
 let mountedBoard = null;
+let mountedStudyUI = null;
 let boardSession = null;
 
 async function closeCurrentBoard() {
+  mountedStudyUI?.destroy();
+  mountedStudyUI = null;
   mountedBoard?.destroy();
   mountedBoard = null;
   const session = boardSession;
@@ -146,13 +149,22 @@ async function loadBoard(boardId) {
     pendingRequestsList.append(item);
   }
 
-  const { mountBoardCanvas, openBoardSession } = await import('/board.bundle.js');
+  const [{ mountBoardCanvas, openBoardSession }, { mountBoardStudyUI }] = await Promise.all([
+    import('/board.bundle.js'),
+    import('/board-study-ui.js'),
+  ]);
   boardSession = await openBoardSession(boardId);
   mountedBoard = mountBoardCanvas({
     boardId,
     canvas: document.querySelector('#board-canvas'),
     toolbar: document.querySelector('#board-toolbar'),
     doc: boardSession.doc,
+    onSaveBoardImage: () => mountedStudyUI?.saveManualBoardImage(),
+  });
+  mountedStudyUI = mountBoardStudyUI({
+    boardId,
+    canvas: document.querySelector('#board-canvas'),
+    mountedBoard,
   });
   document.querySelector('#board-access-message').textContent = 'Quadro compartilhado aberto neste navegador.';
   document.querySelector('#board-workspace').hidden = false;
