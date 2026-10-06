@@ -5,6 +5,7 @@ import {
   readBoardElements,
   setElementGeometry,
 } from '../shared/board-model.js';
+import { loadBoardImageAsset } from './board-images.js';
 
 export const CANVAS_ORIGIN = Symbol('canvas-local-action');
 
@@ -74,6 +75,9 @@ export function bindBoardCanvas({
   getLogicalId = id => id,
   beforeLocalAction = () => {},
   afterLocalAction = () => {},
+  boardId,
+  loadImage = loadBoardImageAsset,
+  onImageError = () => {},
 }) {
   if (!doc || !canvas?.getContext || !canvas?.addEventListener) {
     throw new TypeError('A Y.Doc and an event-capable Canvas are required');
@@ -81,11 +85,48 @@ export function bindBoardCanvas({
   const context = canvas.getContext('2d');
   let gesture = null;
   let destroyed = false;
+  const imageCache = new Map();
+
+  function requestImage(assetId) {
+    if (!boardId || imageCache.has(assetId)) return;
+    const entry = { bitmap: null, promise: null };
+    imageCache.set(assetId, entry);
+    entry.promise = Promise.resolve().then(() => loadImage(boardId, assetId)).then((bitmap) => {
+      if (destroyed || imageCache.get(assetId) !== entry) {
+        bitmap.close?.();
+        return;
+      }
+      entry.bitmap = bitmap;
+      render();
+    }).catch((error) => {
+      if (imageCache.get(assetId) === entry) imageCache.delete(assetId);
+      if (!destroyed) onImageError(error, assetId);
+    });
+  }
 
   function render() {
     if (destroyed) return;
     context.clearRect(0, 0, canvas.width, canvas.height);
-    for (const element of readBoardElements(doc)) drawElement(context, element);
+    const elements = readBoardElements(doc);
+    const activeAssets = new Set(elements.filter(element => element.type === 'image').map(element => element.data.assetId));
+    for (const [assetId, entry] of imageCache) {
+      if (activeAssets.has(assetId)) continue;
+      entry.bitmap?.close?.();
+      imageCache.delete(assetId);
+    }
+    for (const element of elements) {
+      if (element.type !== 'image') {
+        drawElement(context, element);
+        continue;
+      }
+      const entry = imageCache.get(element.data.assetId);
+      if (entry?.bitmap) {
+        const { x, y, width, height } = element.geometry;
+        context.drawImage(entry.bitmap, x, y, width, height);
+      } else {
+        requestImage(element.data.assetId);
+      }
+    }
   }
 
   function onTransaction(transaction) {
@@ -193,6 +234,8 @@ export function bindBoardCanvas({
       canvas.removeEventListener('pointerup', onPointerUp);
       canvas.removeEventListener('pointercancel', onPointerCancel);
       doc.off('afterTransaction', onTransaction);
+      for (const entry of imageCache.values()) entry.bitmap?.close?.();
+      imageCache.clear();
     },
   };
 }

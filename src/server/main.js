@@ -14,6 +14,10 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
 const publicDir = resolve(root, 'src/public');
 const migrationDir = resolve(root, 'src/server/migrations');
+const templateDir = resolve(root, 'whiteboard/templates');
+const templates = new Map([
+  ['fsm-reference', { filename: 'completo_multi_fsm_10_estados.png', contentType: 'image/png' }],
+]);
 
 export async function openDatabase(
   filename = process.env.DATABASE_PATH ?? resolve(root, 'data/whiteboard.sqlite'),
@@ -69,6 +73,28 @@ export async function createAppServer(options = {}) {
     if (handleSignalingHttpRequest(request, response, db, signalingState)) return;
     if (await handleAssetRequest(request, response, db, assetStorageDirectory)) return;
     if (await handleBoardRequest(request, response, db, boardUpdateStore)) return;
+
+    const templateMatch = request.url.match(/^\/api\/templates\/([a-z0-9-]+)$/);
+    if (request.method === 'GET' && templateMatch) {
+      const template = templates.get(templateMatch[1]);
+      if (!template) {
+        response.writeHead(404).end();
+        return;
+      }
+      try {
+        const image = await readFile(resolve(templateDir, template.filename));
+        response.writeHead(200, {
+          'content-type': template.contentType,
+          'content-length': image.length,
+          'cache-control': 'public, max-age=3600',
+          'x-content-type-options': 'nosniff',
+        });
+        response.end(image);
+      } catch {
+        response.writeHead(404).end();
+      }
+      return;
+    }
 
     if (request.method === 'GET' && request.url === '/health') {
       response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });

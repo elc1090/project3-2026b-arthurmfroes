@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as Y from 'yjs';
-import { addElement, readBoardElements } from '../src/shared/board-model.js';
+import { addElement, deleteElement, readBoardElements } from '../src/shared/board-model.js';
 import { bindBoardCanvas, CANVAS_ORIGIN } from '../src/public/board-canvas.js';
 import { createBoardDocument, mountBoardCanvas } from '../src/public/board-entry.js';
 
@@ -139,4 +139,78 @@ test('mount uses a provider-owned Y.Doc, renders its remote rect, and leaves its
   assert.equal(canvas.context.clearCount, rendersAfterDestroy);
   doc.destroy();
   remoteDoc.destroy();
+});
+
+test('authorized image assets render at their model geometry, reuse one decode, and close on removal', async () => {
+  const doc = new Y.Doc();
+  const canvas = new FakeCanvas();
+  canvas.context.drawImages = [];
+  canvas.context.drawImage = function (...args) { this.drawImages.push(args); };
+  const bitmap = { closeCount: 0, close() { this.closeCount += 1; } };
+  let loads = 0;
+  addElement(doc, {
+    id: 'image-one', type: 'image',
+    geometry: { x: 31, y: 47, width: 120, height: 90 },
+    data: { assetId: 'asset-one', mimeType: 'image/png', width: 320, height: 240 },
+  });
+  const binding = bindBoardCanvas({
+    doc,
+    canvas,
+    boardId: 'authorized-board',
+    loadImage: async (boardId, assetId) => {
+      loads += 1;
+      assert.equal(boardId, 'authorized-board');
+      assert.equal(assetId, 'asset-one');
+      return bitmap;
+    },
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(loads, 1);
+  assert.deepEqual(canvas.context.drawImages, [[bitmap, 31, 47, 120, 90]]);
+
+  addElement(doc, {
+    id: 'image-two', type: 'image',
+    geometry: { x: 200, y: 210, width: 40, height: 30 },
+    data: { assetId: 'asset-one', mimeType: 'image/png', width: 320, height: 240 },
+  });
+  assert.equal(loads, 1, 'the same asset uses its cached bitmap');
+  assert.equal(canvas.context.drawImages.length, 3, 'both image references render in board order');
+  assert.equal(canvas.context.drawImages[2][1], 200);
+
+  deleteElement(doc, 'image-one');
+  assert.equal(bitmap.closeCount, 0, 'a shared cached asset stays open while still referenced');
+  deleteElement(doc, 'image-two');
+  assert.equal(bitmap.closeCount, 1, 'the cached bitmap closes after its final reference is removed');
+  binding.destroy();
+  assert.equal(bitmap.closeCount, 1, 'removed bitmaps are not closed twice');
+  doc.destroy();
+});
+
+test('an image decoded after its reference and Canvas are removed is closed without drawing', async () => {
+  const doc = new Y.Doc();
+  const canvas = new FakeCanvas();
+  canvas.context.drawImages = [];
+  canvas.context.drawImage = function (...args) { this.drawImages.push(args); };
+  let resolveBitmap;
+  const pendingBitmap = new Promise(resolve => { resolveBitmap = resolve; });
+  addElement(doc, {
+    id: 'late-image', type: 'image',
+    geometry: { x: 10, y: 20, width: 30, height: 40 },
+    data: { assetId: 'late-asset', mimeType: 'image/png' },
+  });
+  const binding = bindBoardCanvas({
+    doc,
+    canvas,
+    boardId: 'authorized-board',
+    loadImage: () => pendingBitmap,
+  });
+  await Promise.resolve();
+  deleteElement(doc, 'late-image');
+  binding.destroy();
+  const bitmap = { closeCount: 0, close() { this.closeCount += 1; } };
+  resolveBitmap(bitmap);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(bitmap.closeCount, 1);
+  assert.deepEqual(canvas.context.drawImages, []);
+  doc.destroy();
 });

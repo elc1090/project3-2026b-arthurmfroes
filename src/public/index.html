@@ -20,8 +20,10 @@
       #board-list li { margin: .55rem 0; }
       #board-detail { border-top: 1px solid #e2e8f0; margin-top: 1.5rem; padding-top: .5rem; }
       #board-members li { margin: .55rem 0; }
-      #board-toolbar { display: flex; gap: .5rem; margin: .75rem 0; }
+      #board-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin: .75rem 0; }
       #board-toolbar button { width: auto; }
+      #board-image-picker { display: none; }
+      #board-image-status { flex-basis: 100%; margin: 0; font-size: .9rem; }
       #board-canvas { display: block; width: 100%; max-width: 800px; height: auto; border: 1px solid #cbd5e1; background: white; touch-action: none; }
     </style>
   </head>
@@ -77,8 +79,12 @@
               <button type="button" data-board-tool="rectangle" aria-pressed="false">Retângulo</button>
               <button type="button" data-board-tool="delete" aria-pressed="false">Apagar</button>
               <button type="button" data-board-tool="eraser" aria-pressed="false">Borracha</button>
+              <button type="button" data-board-image-add>Adicionar imagem</button>
+              <input id="board-image-picker" type="file" accept="image/png,image/jpeg,image/gif,image/webp" data-board-image-picker>
+              <button type="button" data-board-template-add>Inserir modelo FSM</button>
               <button type="button" data-board-undo disabled>Desfazer</button>
               <button type="button" data-board-redo disabled>Refazer</button>
+              <p id="board-image-status" role="status" aria-live="polite"></p>
             </div>
             <canvas id="board-canvas" width="800" height="480" aria-label="Canvas compartilhado"></canvas>
           </div>
