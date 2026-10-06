@@ -48,6 +48,11 @@ async function waitForBoardPage(context, baseUrl, boardId) {
     throw new Error('Board page did not open: ' + JSON.stringify({ state, pageErrors, failedResponses, pageUrl: page.url() }), { cause: error });
   }
   await page.locator('#replica-panel-status').getByText(/Canal de diagnóstico ativo/).waitFor({ timeout: 10_000 });
+  const metricsPanel = page.locator('#sync-experiment [data-sync-experiment]');
+  await metricsPanel.getByText('Tráfego desta réplica').waitFor();
+  await metricsPanel.getByRole('button', { name: 'Zerar contadores' }).click();
+  await metricsPanel.getByText('Contadores zerados nesta réplica.').waitFor();
+  assert.match(await metricsPanel.locator('pre').textContent(), /websocket: enviados/);
   return page;
 }
 

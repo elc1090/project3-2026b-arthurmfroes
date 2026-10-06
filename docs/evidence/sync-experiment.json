@@ -1,0 +1,209 @@
+{
+  "schemaVersion": 1,
+  "scenario": "Same two rectangle actions with VPS WebSocket active in both modes; wait for client convergence and VPS durable ACK",
+  "createdAt": "2026-10-06T17:28:07.159Z",
+  "timingClock": "orchestrator-monotonic-ms",
+  "trafficScope": "WebSocket UTF-8 JSON and WebRTC datachannel payload bytes; excludes WS/TCP/TLS/SCTP/DTLS/IP overhead and retransmissions",
+  "runs": [
+    {
+      "mode": "hybrid",
+      "vpsWebSocket": "active",
+      "p2p": "active",
+      "replicas": {
+        "alice": {
+          "websocket": {
+            "sent": {
+              "bytes": 866,
+              "messages": 2,
+              "updateMessages": 2,
+              "awarenessBytes": 0,
+              "awarenessMessages": 0,
+              "syncBytes": 866,
+              "otherBytes": 0
+            },
+            "received": {
+              "bytes": 1530,
+              "messages": 4,
+              "updateMessages": 2,
+              "awarenessBytes": 0,
+              "awarenessMessages": 0,
+              "syncBytes": 1036,
+              "otherBytes": 494
+            }
+          },
+          "webrtc": {
+            "sent": {
+              "bytes": 1872,
+              "messages": 10,
+              "updateMessages": 2,
+              "awarenessBytes": 1335,
+              "awarenessMessages": 8,
+              "syncBytes": 537,
+              "otherBytes": 0
+            },
+            "received": {
+              "bytes": 1872,
+              "messages": 10,
+              "updateMessages": 2,
+              "awarenessBytes": 1335,
+              "awarenessMessages": 8,
+              "syncBytes": 537,
+              "otherBytes": 0
+            }
+          }
+        },
+        "bob": {
+          "websocket": {
+            "sent": {
+              "bytes": 866,
+              "messages": 2,
+              "updateMessages": 2,
+              "awarenessBytes": 0,
+              "awarenessMessages": 0,
+              "syncBytes": 866,
+              "otherBytes": 0
+            },
+            "received": {
+              "bytes": 1530,
+              "messages": 4,
+              "updateMessages": 2,
+              "awarenessBytes": 0,
+              "awarenessMessages": 0,
+              "syncBytes": 1036,
+              "otherBytes": 494
+            }
+          },
+          "webrtc": {
+            "sent": {
+              "bytes": 1872,
+              "messages": 10,
+              "updateMessages": 2,
+              "awarenessBytes": 1335,
+              "awarenessMessages": 8,
+              "syncBytes": 537,
+              "otherBytes": 0
+            },
+            "received": {
+              "bytes": 1872,
+              "messages": 10,
+              "updateMessages": 2,
+              "awarenessBytes": 1335,
+              "awarenessMessages": 8,
+              "syncBytes": 537,
+              "otherBytes": 0
+            }
+          }
+        }
+      },
+      "firstVisibleMs": 92.86655199999996,
+      "firstArrivalPath": "peer-room",
+      "peerVisibleMs": 92.86655199999996,
+      "allClientsConvergedMs": 173.29034000000001,
+      "vpsDurableMs": 175.12325199999987,
+      "serverUpdateRows": 4
+    },
+    {
+      "mode": "server-only",
+      "vpsWebSocket": "active",
+      "p2p": "paused",
+      "replicas": {
+        "alice": {
+          "websocket": {
+            "sent": {
+              "bytes": 423,
+              "messages": 1,
+              "updateMessages": 1,
+              "awarenessBytes": 0,
+              "awarenessMessages": 0,
+              "syncBytes": 423,
+              "otherBytes": 0
+            },
+            "received": {
+              "bytes": 763,
+              "messages": 2,
+              "updateMessages": 1,
+              "awarenessBytes": 0,
+              "awarenessMessages": 0,
+              "syncBytes": 516,
+              "otherBytes": 247
+            }
+          },
+          "webrtc": {
+            "sent": {
+              "bytes": 0,
+              "messages": 0,
+              "updateMessages": 0,
+              "awarenessBytes": 0,
+              "awarenessMessages": 0,
+              "syncBytes": 0,
+              "otherBytes": 0
+            },
+            "received": {
+              "bytes": 0,
+              "messages": 0,
+              "updateMessages": 0,
+              "awarenessBytes": 0,
+              "awarenessMessages": 0,
+              "syncBytes": 0,
+              "otherBytes": 0
+            }
+          }
+        },
+        "bob": {
+          "websocket": {
+            "sent": {
+              "bytes": 431,
+              "messages": 1,
+              "updateMessages": 1,
+              "awarenessBytes": 0,
+              "awarenessMessages": 0,
+              "syncBytes": 431,
+              "otherBytes": 0
+            },
+            "received": {
+              "bytes": 755,
+              "messages": 2,
+              "updateMessages": 1,
+              "awarenessBytes": 0,
+              "awarenessMessages": 0,
+              "syncBytes": 508,
+              "otherBytes": 247
+            }
+          },
+          "webrtc": {
+            "sent": {
+              "bytes": 0,
+              "messages": 0,
+              "updateMessages": 0,
+              "awarenessBytes": 0,
+              "awarenessMessages": 0,
+              "syncBytes": 0,
+              "otherBytes": 0
+            },
+            "received": {
+              "bytes": 0,
+              "messages": 0,
+              "updateMessages": 0,
+              "awarenessBytes": 0,
+              "awarenessMessages": 0,
+              "syncBytes": 0,
+              "otherBytes": 0
+            }
+          }
+        }
+      },
+      "firstVisibleMs": 83.89328799999976,
+      "firstArrivalPath": "server",
+      "peerVisibleMs": null,
+      "allClientsConvergedMs": 162.6629579999999,
+      "vpsDurableMs": 185.02205099999992,
+      "serverUpdateRows": 2
+    }
+  ],
+  "separateDemonstration": {
+    "scenario": "hybrid-vps-paused",
+    "evidenceTest": "test/board-session.browser.test.js",
+    "evidenceCase": "two isolated Chrome profiles exchange through WebRTC with board WS paused, then persist after resume",
+    "includedInComparison": false
+  }
+}

@@ -25,6 +25,7 @@ let mountedStudyUI = null;
 let mountedReplicaPanel = null;
 let mountedTimeline = null;
 let mountedSyncStatusUI = null;
+let mountedSyncExperimentUI = null;
 let unobserveBoardEvents = [];
 let boardSession = null;
 
@@ -36,6 +37,8 @@ async function closeCurrentBoard() {
   mountedTimeline = null;
   mountedSyncStatusUI?.destroy();
   mountedSyncStatusUI = null;
+  mountedSyncExperimentUI?.destroy();
+  mountedSyncExperimentUI = null;
   mountedReplicaPanel?.destroy();
   mountedReplicaPanel = null;
   mountedStudyUI?.destroy();
@@ -177,7 +180,7 @@ async function loadBoard(boardId) {
     pendingRequestsList.append(item);
   }
 
-  const [{ mountBoardCanvas, openBoardSession }, { mountBoardStudyUI }] = await Promise.all([
+  const [{ mountBoardCanvas, openBoardSession, mountSyncExperimentUI }, { mountBoardStudyUI }] = await Promise.all([
     import('/board.bundle.js'),
     import('/board-study-ui.js'),
   ]);
@@ -199,6 +202,7 @@ async function loadBoard(boardId) {
   mountedReplicaPanel = mountReplicaPanel({ boardId, session: boardSession });
   mountedTimeline = mountBoardTimelineUI({ session: boardSession, container: document.querySelector('#board-timeline') });
   mountedSyncStatusUI = mountBoardSyncStatusUI({ session: boardSession, container: document.querySelector('#board-sync-status') });
+  mountedSyncExperimentUI = mountSyncExperimentUI({ session: boardSession, container: document.querySelector('#sync-experiment'), boardId, replicaId: sessionStorage.getItem(`t3-replica:${boardId}`) });
   const replicaPanelRoot = document.querySelector('#replica-panel');
   replicaPanelRoot.addEventListener('replica-diagnostic-event', onReplicaDiagnosticEvent);
   for (const type of ['update-observed', 'sync-batch']) {

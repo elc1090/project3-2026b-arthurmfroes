@@ -1,6 +1,6 @@
 # Demonstração local do T3
 
-Este roteiro abre o quadro em perfis de navegador separados e mostra quando uma edição está local, chegou por P2P e foi gravada pelo servidor. Ele também registra casos que ainda dependem da integração das tarefas 7.3 e 7.4. Não há números de desempenho neste documento: eles precisam vir de uma execução medida.
+Este roteiro abre o quadro em perfis de navegador separados e mostra quando uma edição está local, chegou por P2P e foi gravada pelo servidor. Os números abaixo são de uma execução local do experimento pareado; os arquivos JSON e CSV preservam a amostra.
 
 ## Preparar e iniciar
 
@@ -81,6 +81,12 @@ O painel tem quatro sinais distintos: estado local, conexão VPS, número de par
 
 O WebSocket diagnóstico é separado da sincronização do quadro. Se ele cair, o painel informa "Canal de diagnóstico desconectado" ou "indisponível". Prévias de outras réplicas e eventos recebidos pelo diagnóstico deixam de atualizar até a reconexão. O status da conexão de sincronização pode continuar ativo; use a linha "VPS durável" para confirmar persistência. Uma prévia ou conexão ativa, isoladamente, não é confirmação durável.
 
+## Inspecionar o histórico limitado
+
+No painel, "Histórico de inspeção" lista snapshots das réplicas e eventos recebidos pela VPS. Crie duas formas em A e clique no snapshot mais recente de A: a comparação mostra o objeto acrescentado entre dois snapshots da mesma réplica. Depois pause a VPS em A e B e edite outra forma. Os snapshots de A e B avançam no diagnóstico, enquanto a prévia da VPS conserva o estado durável anterior. Esta inspeção depende do servidor diagnóstico; com a VPS inteira fora do ar, ela volta apenas quando o serviço retornar.
+
+O histórico mantém até 32 snapshots e 256 eventos por quadro; cada snapshot aceita até 1 MiB e o conjunto de snapshots até 16 MiB. Ao exceder o limite, elimina entradas antigas, mantendo preferencialmente a última de cada réplica. Ele guarda projeções e metadados para inspeção, separados dos updates Yjs e checkpoints usados para recuperar o quadro. O teste `test/inspection-history.test.js` força a poda, abre uma réplica atrasada e compara o estado reconstruído, para mostrar que a expiração do histórico não descarta o estado durável.
+
 ## Reproduzir conflitos concorrentes
 
 O Canvas atual permite criar e mover formas pela interface. Para reproduzir alterações concorrentes à mesma propriedade, duas movimentações do mesmo objeto e remoção contra edição com IDs e estado final verificados, rode o teste browser focado:
@@ -91,21 +97,30 @@ timeout 120s node --test test/multiclient-recovery.browser.test.js
 
 O teste abre perfis Chromium separados, pausa os caminhos P2P e servidor nos dois clientes, aplica operações controladas ao modelo e compara as duas réplicas e a reconstrução durável. Ele cobre mover versus alterar cor, duas movimentações do mesmo objeto e exclusão versus alteração. É um teste automatizado com fixture, não uma gravação manual feita pelos controles do Canvas.
 
-## Resultados e itens que faltam
+## Medir e comparar os caminhos
 
-Preencha esta seção depois da integração das tarefas 7.3 e 7.4 e de executar as comparações. Não estime os valores. Registre a versão do código, browser/perfis usados, sequência de ações, estado de cada réplica antes e depois da reconexão, contagem de updates, bytes por caminho e tempo de convergência. Anexe a saída exportada pela ferramenta de comparação quando a tarefa 7.4 entregar o comando.
+Com o quadro aberto, "Tráfego desta réplica" mostra bytes e updates por WebSocket e WebRTC. "Zerar contadores" reinicia apenas a medição daquela sessão. "Baixar JSON" e "Baixar CSV" exportam os contadores atuais. Para repetir a comparação pareada, a partir da raiz do projeto, rode:
 
-| Execução | Caminho | Updates | Bytes | Convergência | Observação |
-| --- | --- | ---: | ---: | ---: | --- |
-| A completar | Híbrido, P2P e VPS | A medir | A medir | A medir | A completar |
-| A completar | Somente servidor | A medir | A medir | A medir | A completar |
+```sh
+timeout 120s npm run experiment:sync -- /tmp/t3-sync-experiment
+```
 
-A seção de histórico também depende da 7.3. Depois da integração, acrescente o limite de retenção usado, os checkpoints comparados, o diff visível e o resultado de late join após expiração de entradas antigas. A poda não pode impedir a reconstrução do estado durável mais recente.
+O runner abre dois perfis Chromium isolados e executa os mesmos dois gestos de retângulo nos dois modos. Em ambos, o WebSocket da VPS fica ativo. Só o P2P muda: ativo no híbrido, pausado no modo somente servidor. O tempo começa no gesto, usa relógio monotônico do processo de teste e termina quando ambos os clientes convergem e quando a VPS confirma o estado persistido. Os arquivos `sync-experiment.json` e `sync-experiment.csv` aparecem no diretório indicado. A amostra de 6 de outubro de 2026 foi coletada após o commit `b4b38a9`, com Node.js 24.21.0 e Google Chrome 142.0.7444.59 no Linux local. Está em [JSON](evidence/sync-experiment.json) e [CSV](evidence/sync-experiment.csv).
+
+| Modo | Primeira chegada ao outro cliente | Todos os clientes convergiram | VPS durável | Updates enviados por WebSocket | Bytes enviados por WebSocket | Bytes enviados por WebRTC |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Híbrido | P2P, 92,9 ms | 173,3 ms | 175,1 ms | 4 | 1.732 | 3.744 |
+| Somente servidor | VPS, 83,9 ms | 162,7 ms | 185,0 ms | 2 | 854 | 0 |
+
+Os totais somam A e B na direção de envio. WebRTC inclui Awareness, que responde por 2.670 dos 3.744 bytes enviados no modo híbrido. O WebSocket conta envelopes JSON em UTF-8; WebRTC conta o payload binário entregue ao datachannel. Esses números excluem cabeçalhos e retransmissões da rede. Nesta amostra, o servidor entregou o primeiro update antes do P2P no modo somente servidor, e o híbrido consumiu mais bytes medidos. Uma execução local, curta e com ordem sequencial dos modos não sustenta uma conclusão de desempenho; repita em redes e cargas diferentes antes de comparar latência.
+
+O experimento pareado mantém a VPS ativa para isolar o efeito do P2P. A demonstração de continuidade quando a VPS está pausada é separada: `test/board-session.browser.test.js` mostra A e B trocando updates por WebRTC com o WebSocket de sincronização pausado e depois persistindo ao retomar. O caso de chegada atrasada acima mostra a diferença de estado entre A/B e C antes da recuperação.
 
 Limitações conhecidas para interpretar o resultado:
 
 - A timeline local preserva a sequência e o relógio de cada réplica. Ela não estabelece uma ordem total entre relógios diferentes.
 - O preview de peers é uma projeção diagnóstica efêmera. O preview VPS vem do documento reconstruído no servidor e atualiza por polling.
+- A queda completa da VPS também derruba sinalização, autenticação, upload de imagens e diagnóstico. Conexões WebRTC já estabelecidas podem continuar, mas novos pares não entram até o servidor voltar.
 - Se P2P falhar por causa da rede, a sincronização pelo servidor ainda pode continuar; cursores e previews em tempo real não passam pela VPS.
 - Dados offline de quadro e imagens pendentes permanecem no perfil do navegador que os criou até reconexão e upload.
 - Notas exibidas na aba "Feedback" são notas fornecidas para o quadro. O fluxo não executa inferência de IA.

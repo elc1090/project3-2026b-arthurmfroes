@@ -66,9 +66,9 @@ When multiple implementers share this uncommitted working tree, assign exclusive
 - [x] 7.1 Capture action IDs, per-replica first arrival path, update size, and durable acknowledgement events; verify the timeline distinguishes local edit, P2P receipt, server receipt, and persistence without claiming a global event order.
 - [x] 7.2 Build compact board previews for each participating replica and the VPS, plus independent server/P2P pause and resume controls; verify a paused server replica visibly differs from two peers that continue editing together.
 - [x] 7.3 Retain a bounded set of inspectable board checkpoints and event records with a visual object-state diff; verify old inspection entries expire while a new peer still reconstructs the latest board.
-- [ ] 7.4 Record bytes, update counts, and convergence timing for hybrid and server-only modes; verify the same scripted edit sequence produces an exportable comparison for both modes.
+- [x] 7.4 Record bytes, update counts, and convergence timing for hybrid and server-only modes; verify the same scripted edit sequence produces an exportable comparison for both modes.
 
 ## 8. Cross-system validation and T3 evidence
 
 - [x] 8.1 Run automated multi-client scenarios for late join, restart, temporary partition, move-versus-color, same-object moves, delete-versus-update, and image recovery; verify all replicas reach the expected board state after each network heals.
-- [ ] 8.2 Produce a reproducible demonstration script and short evaluation report with observed state differences, update paths, convergence times, traffic, and limitations; verify another person can follow the script using the documented local setup.
+- [x] 8.2 Produce a reproducible demonstration script and short evaluation report with observed state differences, update paths, convergence times, traffic, and limitations; verify another person can follow the script using the documented local setup.
