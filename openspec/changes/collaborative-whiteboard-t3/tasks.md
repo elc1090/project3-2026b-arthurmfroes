@@ -70,5 +70,5 @@ When multiple implementers share this uncommitted working tree, assign exclusive
 
 ## 8. Cross-system validation and T3 evidence
 
-- [ ] 8.1 Run automated multi-client scenarios for late join, restart, temporary partition, move-versus-color, same-object moves, delete-versus-update, and image recovery; verify all replicas reach the expected board state after each network heals.
+- [x] 8.1 Run automated multi-client scenarios for late join, restart, temporary partition, move-versus-color, same-object moves, delete-versus-update, and image recovery; verify all replicas reach the expected board state after each network heals.
 - [ ] 8.2 Produce a reproducible demonstration script and short evaluation report with observed state differences, update paths, convergence times, traffic, and limitations; verify another person can follow the script using the documented local setup.
