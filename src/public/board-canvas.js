@@ -1,6 +1,7 @@
 import {
   addElement,
   createElementId,
+  getBoardMaps,
   readBoardElements,
   setElementGeometry,
 } from '../shared/board-model.js';
@@ -8,19 +9,41 @@ import {
 export const CANVAS_ORIGIN = Symbol('canvas-local-action');
 
 function defaultDraw(context, element) {
-  if (element.type !== 'rect') return;
-  const { x, y, width, height } = element.geometry;
-  context.fillStyle = element.style.fill ?? 'transparent';
   context.strokeStyle = element.style.color ?? '#0f172a';
   context.lineWidth = element.style.strokeWidth ?? 2;
-  if (element.style.fill) context.fillRect(x, y, width, height);
-  context.strokeRect(x, y, width, height);
+  if (element.type === 'rect') {
+    const { x, y, width, height } = element.geometry;
+    context.fillStyle = element.style.fill ?? 'transparent';
+    if (element.style.fill) context.fillRect(x, y, width, height);
+    context.strokeRect(x, y, width, height);
+  } else if (element.type === 'path' && element.geometry.points.length > 1) {
+    context.beginPath();
+    context.moveTo(element.geometry.points[0].x, element.geometry.points[0].y);
+    for (const point of element.geometry.points.slice(1)) context.lineTo(point.x, point.y);
+    context.stroke();
+  }
+}
+
+function distanceToSegment(point, start, end) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const lengthSquared = dx * dx + dy * dy;
+  if (lengthSquared === 0) return Math.hypot(point.x - start.x, point.y - start.y);
+  const t = Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared));
+  return Math.hypot(point.x - (start.x + t * dx), point.y - (start.y + t * dy));
 }
 
 function contains(element, point) {
-  if (element.type !== 'rect') return false;
-  const { x, y, width, height } = element.geometry;
-  return point.x >= x && point.x <= x + width && point.y >= y && point.y <= y + height;
+  if (element.type === 'rect') {
+    const { x, y, width, height } = element.geometry;
+    return point.x >= x && point.x <= x + width && point.y >= y && point.y <= y + height;
+  }
+  if (element.type === 'path' && element.geometry.points.length > 1) {
+    return element.geometry.points.slice(1).some((end, index) => (
+      distanceToSegment(point, element.geometry.points[index], end) <= 8
+    ));
+  }
+  return false;
 }
 
 function pointFromEvent(canvas, event) {
@@ -46,6 +69,10 @@ export function bindBoardCanvas({
   getStyle = () => ({ color: '#0f172a', strokeWidth: 2 }),
   idFactory = createElementId,
   drawElement = defaultDraw,
+  deleteElement = () => {},
+  eraseAt = () => {},
+  getLogicalId = id => id,
+  beforeLocalAction = () => {},
   afterLocalAction = () => {},
 }) {
   if (!doc || !canvas?.getContext || !canvas?.addEventListener) {
@@ -67,13 +94,31 @@ export function bindBoardCanvas({
 
   function onPointerDown(event) {
     const point = pointFromEvent(canvas, event);
-    if (getTool() === 'rectangle') {
+    const tool = getTool();
+    if (tool === 'rectangle') {
       gesture = { kind: 'create', start: point };
+    } else if (tool === 'eraser') {
+      gesture = { kind: 'erase', points: [point] };
     } else {
       const selected = [...readBoardElements(doc)].reverse().find(element => contains(element, point));
-      gesture = selected ? { kind: 'move', id: selected.id, start: point } : null;
+      gesture = selected ? {
+        kind: tool === 'delete' ? 'delete' : 'move',
+        id: selected.id,
+        start: point,
+      } : null;
     }
     if (gesture) canvas.setPointerCapture?.(event.pointerId);
+  }
+
+  function onPointerMove(event) {
+    if (gesture?.kind !== 'erase') return;
+    const point = pointFromEvent(canvas, event);
+    const previous = gesture.points[gesture.points.length - 1];
+    if (Math.hypot(point.x - previous.x, point.y - previous.y) >= 2) gesture.points.push(point);
+  }
+
+  function onPointerCancel() {
+    gesture = null;
   }
 
   function onPointerUp(event) {
@@ -81,6 +126,16 @@ export function bindBoardCanvas({
     const active = gesture;
     gesture = null;
     const end = pointFromEvent(canvas, event);
+    if (active.kind === 'delete') {
+      deleteElement(active.id);
+      return;
+    }
+    if (active.kind === 'erase') {
+      const previous = active.points[active.points.length - 1];
+      if (Math.hypot(end.x - previous.x, end.y - previous.y) >= 2) active.points.push(end);
+      eraseAt({ points: active.points, radius: 12 });
+      return;
+    }
     if (active.kind === 'create') {
       const geometry = {
         x: Math.min(active.start.x, end.x),
@@ -90,8 +145,14 @@ export function bindBoardCanvas({
       };
       if (geometry.width === 0 || geometry.height === 0) return;
       const style = getStyle();
+      const id = idFactory();
+      const action = {
+        kind: 'create', logicalId: id, index: getBoardMaps(doc).order.length,
+        element: { id, type: 'rect', geometry, style, data: {} },
+      };
+      beforeLocalAction(action);
       doc.transact(() => addElement(doc, {
-        id: idFactory(), type: 'rect', geometry, style,
+        id, type: 'rect', geometry, style,
       }), CANVAS_ORIGIN);
       afterLocalAction();
       return;
@@ -102,6 +163,11 @@ export function bindBoardCanvas({
     const dx = end.x - active.start.x;
     const dy = end.y - active.start.y;
     if (dx === 0 && dy === 0) return;
+    const action = {
+      kind: 'move', logicalId: getLogicalId(active.id), physicalId: active.id,
+      delta: { x: dx, y: dy },
+    };
+    beforeLocalAction(action);
     doc.transact(() => setElementGeometry(doc, active.id, {
       ...element.geometry,
       x: element.geometry.x + dx,
@@ -111,7 +177,9 @@ export function bindBoardCanvas({
   }
 
   canvas.addEventListener('pointerdown', onPointerDown);
+  canvas.addEventListener('pointermove', onPointerMove);
   canvas.addEventListener('pointerup', onPointerUp);
+  canvas.addEventListener('pointercancel', onPointerCancel);
   doc.on('afterTransaction', onTransaction);
   render();
 
@@ -121,7 +189,9 @@ export function bindBoardCanvas({
       if (destroyed) return;
       destroyed = true;
       canvas.removeEventListener('pointerdown', onPointerDown);
+      canvas.removeEventListener('pointermove', onPointerMove);
       canvas.removeEventListener('pointerup', onPointerUp);
+      canvas.removeEventListener('pointercancel', onPointerCancel);
       doc.off('afterTransaction', onTransaction);
     },
   };

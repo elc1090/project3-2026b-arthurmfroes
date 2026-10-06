@@ -68,7 +68,11 @@ export function mountBoardCanvas({ canvas, toolbar, doc: suppliedDoc, elements =
     doc,
     canvas,
     getTool: () => tool,
+    getLogicalId: id => history.logicalIdFor(id),
+    beforeLocalAction: action => history.beginLocalAction(action),
     afterLocalAction: () => history.stopCapturing(),
+    deleteElement: id => history.deleteElement(id),
+    eraseAt: options => history.eraseAt(options),
   });
   refreshHistoryButtons({ canUndo: history.canUndo, canRedo: history.canRedo });
   return {
