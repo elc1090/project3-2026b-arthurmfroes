@@ -44,7 +44,7 @@ When multiple implementers share this uncommitted working tree, assign exclusive
 - [x] 4.1 Persist per-board binary updates and issue a durable acknowledgement only after storage commits; verify an acknowledged edit survives a process restart with no browsers online.
 - [x] 4.2 Add recoverable checkpoints and prune covered operational updates; verify restart and late-join reconstruction before and after pruning yield the same board state.
 - [x] 4.3 Persist browser documents locally and reconcile them on reconnect; verify an edit made without network survives tab closure and appears on another authorized replica after reconnection.
-- [ ] 4.4 Expose local, peer-received, and durable-server statuses separately; verify a peer-visible edit is not marked persisted while the VPS path is paused.
+- [x] 4.4 Expose local, peer-received, and durable-server statuses separately; verify a peer-visible edit is not marked persisted while the VPS path is paused.
 
 ## 5. Authenticated hybrid transport
 
@@ -63,7 +63,7 @@ When multiple implementers share this uncommitted working tree, assign exclusive
 
 ## 7. Observability and bounded history
 
-- [ ] 7.1 Capture action IDs, per-replica first arrival path, update size, and durable acknowledgement events; verify the timeline distinguishes local edit, P2P receipt, server receipt, and persistence without claiming a global event order.
+- [x] 7.1 Capture action IDs, per-replica first arrival path, update size, and durable acknowledgement events; verify the timeline distinguishes local edit, P2P receipt, server receipt, and persistence without claiming a global event order.
 - [x] 7.2 Build compact board previews for each participating replica and the VPS, plus independent server/P2P pause and resume controls; verify a paused server replica visibly differs from two peers that continue editing together.
 - [ ] 7.3 Retain a bounded set of inspectable board checkpoints and event records with a visual object-state diff; verify old inspection entries expire while a new peer still reconstructs the latest board.
 - [ ] 7.4 Record bytes, update counts, and convergence timing for hybrid and server-only modes; verify the same scripted edit sequence produces an exportable comparison for both modes.
