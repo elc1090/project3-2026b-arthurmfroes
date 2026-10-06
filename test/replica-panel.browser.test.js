@@ -207,7 +207,7 @@ test('two browser replicas stay ahead of the VPS preview while server sync is pa
       'resuming server sync persists the peer edit and updates the VPS preview');
     await bobPage.waitForFunction(() => window.__replicaEvents.some((entry) => entry.event?.type === 'durable-persisted'), null, { timeout: 5_000 });
     const durableEvent = await bobPage.evaluate(() => window.__replicaEvents.filter((entry) => entry.event?.type === 'durable-persisted').at(-1));
-    assert.equal(durableEvent.replicaId, 'vps');
+    assert.match(durableEvent.replicaId, /^vps:[0-9a-f-]{36}$/i);
     assert.equal(Number.isSafeInteger(durableEvent.event.sequence), true);
     assert.equal(typeof durableEvent.event.observedAt, 'string');
     assert.equal(typeof durableEvent.event.updateBytes, 'number');

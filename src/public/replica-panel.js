@@ -175,20 +175,29 @@ export function mountReplicaPanel({ boardId, session, root = document.querySelec
   }
 
   function sendSnapshot() {
-    if (destroyed || socket?.readyState !== WebSocket.OPEN) return;
+    if (destroyed || socket?.readyState !== WebSocket.OPEN) return false;
     const payload = JSON.stringify({ type: 'snapshot', elements: readBoardProjection(session.doc) });
     if (new TextEncoder().encode(payload).byteLength > MAX_DIAGNOSTIC_MESSAGE_BYTES) {
       status.textContent = 'Projeção local acima do limite de diagnóstico; estado do quadro não foi alterado.';
-      return;
+      return false;
     }
     socket.send(payload);
+    return true;
+  }
+
+  function scheduleHistoryRefresh() {
+    if (historyRefreshTimer !== null) return;
+    historyRefreshTimer = setTimeout(() => {
+      historyRefreshTimer = null;
+      historyUI.refresh();
+    }, 200);
   }
 
   function scheduleSnapshot() {
     if (publishTimer !== null) clearTimeout(publishTimer);
     publishTimer = setTimeout(() => {
       publishTimer = null;
-      sendSnapshot();
+      if (sendSnapshot()) scheduleHistoryRefresh();
       renderPreviews();
     }, 125);
   }
@@ -203,8 +212,7 @@ export function mountReplicaPanel({ boardId, session, root = document.querySelec
     current.addEventListener('open', () => {
       if (socket !== current || destroyed) return;
       diagnosticState = 'ativo';
-      sendSnapshot();
-      historyUI.refresh();
+      if (sendSnapshot()) scheduleHistoryRefresh();
       updateStatus();
     });
     current.addEventListener('message', (event) => {
@@ -221,9 +229,7 @@ export function mountReplicaPanel({ boardId, session, root = document.querySelec
         renderPreviews();
       } else if (message.type === 'event') {
         root.dispatchEvent(new CustomEvent('replica-diagnostic-event', { detail: message }));
-        if (historyRefreshTimer === null) {
-          historyRefreshTimer = setTimeout(() => { historyRefreshTimer = null; historyUI.refresh(); }, 200);
-        }
+        scheduleHistoryRefresh();
       } else if (message.type === 'history-page' || message.type === 'history-snapshot' || message.type === 'history-error') {
         root.dispatchEvent(new CustomEvent('replica-history-message', { detail: message }));
       }

@@ -102,3 +102,87 @@ test('browser renders retained object diffs side by side and shows replica clock
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test('local canvas edit refreshes history while VPS sync is paused and no other events arrive', { timeout: 60_000 }, async () => {
+  const directory = await mkdtemp(join(tmpdir(), 't3-inspection-history-local-'));
+  const db = await openDatabase(join(directory, 'board.sqlite'));
+  const user = addAccount(db);
+  const boardId = randomUUID();
+  db.prepare('INSERT INTO boards (id, title) VALUES (?, ?)').run(boardId, 'Local history refresh');
+  db.prepare('INSERT INTO memberships (board_id, account_id) VALUES (?, ?)').run(boardId, user.accountId);
+  await build({ absWorkingDir: root, entryPoints: ['src/public/board-session-entry.js'], bundle: true, format: 'esm', outfile: join(root, 'src/public/board.bundle.js') });
+  const server = await createAppServer({ db, assetStorageDirectory: join(directory, 'assets') });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const browserPath = ['/usr/bin/google-chrome', '/snap/bin/chromium', '/usr/bin/chromium'].find(existsSync);
+  assert.ok(browserPath, 'a local Chromium executable is required for this visual browser test');
+  let context;
+  try {
+    context = await chromium.launchPersistentContext(join(directory, 'profile'), {
+      executablePath: browserPath, headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'],
+    });
+    await context.addCookies([{ name: 'whiteboard_session', value: user.token, url: baseUrl }]);
+    const page = await context.newPage();
+    await page.setViewportSize({ width: 1280, height: 1400 });
+    const pageErrors = [];
+    page.on('pageerror', (error) => pageErrors.push(String(error)));
+    page.on('console', (message) => { if (message.type() === 'error') pageErrors.push(message.text()); });
+    await page.goto(`${baseUrl}/boards/${boardId}`);
+    await page.locator('#board-workspace').waitFor({ state: 'visible', timeout: 15_000 });
+    await page.locator('#replica-pause-server').click();
+    await page.getByText('Conexão VPS: pausada neste navegador').waitFor();
+    await page.waitForFunction(() => document.querySelector('.replica-preview-card[data-replica-id="vps"]')?.dataset.elementCount === '0');
+    const localReplicaId = await page.evaluate((id) => {
+      const stored = sessionStorage.getItem(`t3-replica:${id}`);
+      return stored.startsWith('peer:') ? stored : `peer:${stored}`;
+    }, boardId);
+    const localSnapshotRows = page.locator(`#replica-history [data-history-snapshots] [data-snapshot-id]`).filter({ hasText: localReplicaId });
+    await page.waitForFunction((id) => [...document.querySelectorAll('#replica-history [data-history-snapshots] [data-snapshot-id]')]
+      .some((row) => row.textContent.includes(id)), localReplicaId, { timeout: 10_000 });
+    const beforeCount = await localSnapshotRows.count();
+
+    const canvas = page.locator('#board-canvas');
+    await canvas.scrollIntoViewIfNeeded();
+    await canvas.evaluate((element) => element.scrollIntoView({ block: 'center' }));
+    const bounds = await canvas.boundingBox();
+    await canvas.evaluate((element) => element.addEventListener('pointerdown', (event) => {
+      window.__historyCanvasPointer = { x: event.clientX, y: event.clientY, target: event.target?.id };
+    }));
+    await page.locator('[data-board-tool="rectangle"]').click();
+    assert.equal(await page.locator('[data-board-tool="rectangle"]').getAttribute('aria-pressed'), 'true');
+    await page.mouse.move(bounds.x + 40, bounds.y + 45);
+    await page.mouse.down();
+    await page.mouse.move(bounds.x + 120, bounds.y + 105, { steps: 3 });
+    await page.mouse.up();
+    try {
+      await page.waitForFunction(({ id, minimum }) => [...document.querySelectorAll('#replica-history [data-history-snapshots] [data-snapshot-id]')]
+        .filter((row) => row.textContent.includes(id)).length > minimum, { id: localReplicaId, minimum: beforeCount }, { timeout: 10_000 });
+    } catch (error) {
+      const state = await page.evaluate(() => ({
+        snapshotRows: [...document.querySelectorAll('#replica-history [data-history-snapshots] li')].map((row) => row.textContent),
+        eventRows: [...document.querySelectorAll('#replica-history [data-history-events] li')].map((row) => row.textContent),
+        localPreview: document.querySelector('.replica-preview-card[data-replica-id="local"]')?.dataset.elementCount,
+        rectPressed: document.querySelector('[data-board-tool="rectangle"]')?.getAttribute('aria-pressed'),
+        canvasBounds: (() => { const rect = document.querySelector('#board-canvas')?.getBoundingClientRect(); return rect && [rect.x, rect.y, rect.width, rect.height]; })(),
+        pointer: window.__historyCanvasPointer,
+        peers: [...document.querySelectorAll('.replica-preview-card[data-replica-id^="peer:"]')].map((item) => item.dataset.replicaId),
+        status: document.querySelector('#replica-panel-status')?.textContent,
+      }));
+      const stored = db.prepare('SELECT id, replica_id, projection_json FROM inspection_snapshots WHERE board_id=? ORDER BY id').all(boardId);
+      throw new Error(`Local snapshot did not appear: ${JSON.stringify({ localReplicaId, beforeCount, state, stored: stored.map((row) => ({ ...row, projection_json: row.projection_json.slice(0, 160) })), pageErrors })}`, { cause: error });
+    }
+
+    assert.equal(await page.locator('#replica-history [data-history-events] [data-event-id]').count(), 0,
+      'this page has no peer or VPS event to trigger the refresh');
+    assert.equal(await page.locator('.replica-preview-card[data-replica-id^="peer:"]').count(), 0,
+      'there is no second peer in the diagnostics room');
+    assert.equal(await page.locator('.replica-preview-card[data-replica-id="vps"]').getAttribute('data-element-count'), '0',
+      'the VPS projection remains unchanged while its sync is paused');
+  } finally {
+    if (context) await context.close();
+    await new Promise((resolve) => server.close(resolve));
+    db.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
