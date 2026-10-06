@@ -26,16 +26,16 @@ const fixtureHtml = `<!doctype html>
   </div>
   <canvas id="board-canvas" width="800" height="480"></canvas>
   <script type="module">
-    import { createBoardDocument, mountBoardCanvas } from '/board.bundle.js';
+    import { openBoardSession, mountBoardCanvas } from '/board.bundle.js';
     const query = new URL(location.href).searchParams;
-    const initialElements = JSON.parse(query.get('elements') || '[]');
     const nativeDrawImage = CanvasRenderingContext2D.prototype.drawImage;
     window.__draws = [];
     CanvasRenderingContext2D.prototype.drawImage = function (image, ...geometry) {
       window.__draws.push(geometry);
       return nativeDrawImage.call(this, image, ...geometry);
     };
-    window.__doc = createBoardDocument(initialElements);
+    window.__session = await openBoardSession(query.get('boardId'));
+    window.__doc = window.__session.doc;
     window.__mounted = mountBoardCanvas({
       boardId: query.get('boardId'),
       doc: window.__doc,
@@ -71,14 +71,14 @@ function addAccount(db, username) {
   return { accountId, token };
 }
 
-async function openImagePage(context, baseUrl, boardId, elements = []) {
+async function openImagePage(context, baseUrl, boardId) {
   await context.route('**/__image-ui*', route => route.fulfill({
     status: 200,
     contentType: 'text/html; charset=utf-8',
     body: fixtureHtml,
   }));
   const page = await context.newPage();
-  const query = new URLSearchParams({ boardId, elements: JSON.stringify(elements) });
+  const query = new URLSearchParams({ boardId });
   await page.goto(`${baseUrl}/__image-ui?${query}`);
   await page.waitForFunction(() => document.body.dataset.ready === 'true', null, { timeout: 10_000 });
   return page;
@@ -139,8 +139,8 @@ test('two authorized browser profiles render the same asset and exercise file, p
       return data.some((channel, index) => index % 4 === 3 && channel > 0);
     }), 'the browser Canvas contains rendered image pixels');
 
-    const memberPage = await openImagePage(memberContext, baseUrl, boardId, [firstElement]);
-    await memberPage.waitForFunction(() => window.__draws.length > 0, null, { timeout: 15_000 });
+    const memberPage = await openImagePage(memberContext, baseUrl, boardId);
+    await memberPage.waitForFunction(() => window.__elements().length === 1 && window.__draws.length > 0, null, { timeout: 15_000 });
     const memberElement = (await memberPage.evaluate(() => window.__elements()))[0];
     assert.deepEqual(memberElement.geometry, firstElement.geometry, 'both profiles use the same Yjs image geometry');
     assert.equal(memberElement.data.assetId, firstElement.data.assetId);
@@ -159,12 +159,6 @@ test('two authorized browser profiles render the same asset and exercise file, p
       headers: { cookie: `whiteboard_session=${outsider.token}` },
     });
     assert.equal(outsiderResponse.status, 403, 'a nonmember cannot retrieve the uploaded bytes');
-
-    const legacyPage = await openImagePage(ownerContext, baseUrl, '');
-    assert.ok(await legacyPage.locator('[data-board-image-add]').isDisabled());
-    assert.ok(await legacyPage.locator('[data-board-image-picker]').isDisabled());
-    assert.ok(await legacyPage.locator('[data-board-template-add]').isDisabled());
-    await legacyPage.close();
 
     await ownerPage.locator('[data-board-template-add]').click();
     await ownerPage.waitForFunction(() => window.__elements().length === 2, null, { timeout: 15_000 });
@@ -197,6 +191,64 @@ test('two authorized browser profiles render the same asset and exercise file, p
   } finally {
     await ownerContext?.close();
     await memberContext?.close();
+    await new Promise(resolve => server.close(resolve));
+    db.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('the real board page opens its hybrid bundle and inserts a template image', { timeout: 30_000 }, async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'whiteboard-real-image-page-'));
+  const db = await openDatabase(join(directory, 'board.sqlite'));
+  const member = addAccount(db, 'realpagemember');
+  const boardId = randomUUID();
+  db.prepare('INSERT INTO boards (id, title) VALUES (?, ?)').run(boardId, 'Real image page');
+  db.prepare('INSERT INTO memberships (board_id, account_id) VALUES (?, ?)').run(boardId, member.accountId);
+  await build({
+    absWorkingDir: root,
+    entryPoints: ['src/public/board-session-entry.js'],
+    bundle: true,
+    format: 'esm',
+    outfile: join(root, 'src/public/board.bundle.js'),
+  });
+  const server = await createAppServer({ db, assetStorageDirectory: join(directory, 'assets') });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const browserPath = ['/usr/bin/google-chrome', '/snap/bin/chromium', '/usr/bin/chromium'].find(existsSync);
+  assert.ok(browserPath, 'a local Chromium executable is required for this focused browser test');
+  let context;
+  try {
+    context = await chromium.launchPersistentContext(join(directory, 'profile'), {
+      executablePath: browserPath, headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'],
+    });
+    await context.addCookies([{ name: 'whiteboard_session', value: member.token, url: baseUrl }]);
+    const page = await context.newPage();
+    const pageErrors = [];
+    page.on('pageerror', error => pageErrors.push(String(error)));
+    await page.goto(`${baseUrl}/boards/${boardId}`);
+    await page.locator('#board-workspace').waitFor({ state: 'visible', timeout: 10_000 });
+    assert.equal(await page.locator('#board-title').textContent(), 'Real image page');
+    await page.locator('[data-board-template-add]').click();
+    try {
+      await page.getByText('Modelo adicionado ao quadro.').waitFor({ timeout: 10_000 });
+    } catch (error) {
+      throw new Error(`Real board image insertion failed: ${JSON.stringify({
+        imageStatus: await page.locator('#board-image-status').textContent(),
+        pageMessage: await page.locator('#message').textContent(),
+        workspaceVisible: await page.locator('#board-workspace').isVisible(),
+        currentUrl: page.url(),
+        buttonHtml: await page.locator('[data-board-template-add]').evaluate(element => element.outerHTML),
+        pageErrors,
+      })}`, { cause: error });
+    }
+    await page.waitForFunction(() => {
+      const pixels = document.querySelector('#board-canvas').getContext('2d').getImageData(183, 15, 434, 450).data;
+      return pixels.some((channel, index) => index % 4 === 3 && channel > 0);
+    }, null, { timeout: 10_000 });
+    assert.equal(await page.locator('#message').textContent(), '');
+  } finally {
+    await context?.close();
     await new Promise(resolve => server.close(resolve));
     db.close();
     await rm(directory, { recursive: true, force: true });
