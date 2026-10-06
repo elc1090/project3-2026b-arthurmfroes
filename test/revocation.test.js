@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { once } from 'node:events';
 import { test } from 'node:test';
 import * as Y from 'yjs';
+import WebSocket from 'ws';
 import { addElement } from '../src/shared/board-model.js';
 import { createBoardUpdateStore } from '../src/server/board-update-store.js';
 import { createAppServer, openDatabase } from '../src/server/main.js';
@@ -47,6 +48,24 @@ async function createBoard(baseUrl, cookie, title) {
 
 async function requestAccess(baseUrl, boardId, cookie) {
   return fetch(`${baseUrl}/api/boards/${boardId}/access-requests`, { method: 'POST', headers: { cookie } });
+}
+
+function rejectedSyncStatus(baseUrl, boardId, cookie) {
+  return new Promise((resolve, reject) => {
+    const socket = new WebSocket(`${baseUrl.replace(/^http/, 'ws')}/api/boards/${boardId}/sync`, {
+      headers: { cookie },
+    });
+    socket.once('unexpected-response', (_request, response) => {
+      resolve(response.statusCode);
+      response.resume();
+      socket.terminate();
+    });
+    socket.once('open', () => {
+      socket.terminate();
+      reject(new Error('Revoked member reconnected to board synchronization'));
+    });
+    socket.once('error', reject);
+  });
 }
 
 test('any other member can revoke the creator and advance the board epoch atomically', async () => {
@@ -104,6 +123,7 @@ test('any other member can revoke the creator and advance the board epoch atomic
     assert.deepEqual((await detail.json()).board, { ...board, isMember: false });
     assert.equal((await fetch(`${app.baseUrl}/api/boards/${board.id}/content`, { headers: { cookie: founder.cookie } })).status, 403);
     assert.equal((await fetch(`${app.baseUrl}/api/boards/${board.id}/members`, { headers: { cookie: founder.cookie } })).status, 403);
+    assert.equal(await rejectedSyncStatus(app.baseUrl, board.id, founder.cookie), 403);
 
     const pending = await requestAccess(app.baseUrl, board.id, requester.cookie);
     assert.equal(pending.status, 201);
@@ -119,6 +139,7 @@ test('any other member can revoke the creator and advance the board epoch atomic
 
     assert.equal(db.prepare('SELECT epoch FROM boards WHERE id = ?').get(board.id).epoch, 2);
     assert.equal((await fetch(`${app.baseUrl}/api/boards/${board.id}/content`, { headers: { cookie: founder.cookie } })).status, 403);
+    assert.equal(await rejectedSyncStatus(app.baseUrl, board.id, founder.cookie), 403);
     const founderCatalogAfterRestart = await fetch(`${app.baseUrl}/api/boards`, { headers: { cookie: founder.cookie } });
     assert.deepEqual((await founderCatalogAfterRestart.json()).boards, [{ ...board, isMember: false }]);
     const stillPending = await fetch(`${app.baseUrl}/api/boards/${board.id}/access-requests`, { headers: { cookie: member.cookie } });
