@@ -6,6 +6,7 @@ whiteboard/ai_feedback.json
 whiteboard/snapshots/*.png
 !whiteboard/snapshots/.gitkeep
 node_modules/
+src/public/board.bundle.js
 data/
 *.sqlite
 *.sqlite-shm

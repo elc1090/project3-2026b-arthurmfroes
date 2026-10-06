@@ -16,6 +16,7 @@ const pendingRequestsList = document.querySelector('#pending-requests');
 const membersPanel = document.querySelector('#members-panel');
 const membersList = document.querySelector('#board-members');
 let currentAccountId = null;
+let mountedBoard = null;
 
 function showForm(mode) {
   const registering = mode === 'register';
@@ -72,8 +73,9 @@ async function loadBoard(boardId) {
   boardDetail.hidden = false;
   const { board } = await requestJson(`/api/boards/${encodeURIComponent(boardId)}`);
   document.querySelector('#board-title').textContent = board.title;
-  const content = document.querySelector('#board-content');
-  content.replaceChildren();
+  mountedBoard?.destroy();
+  mountedBoard = null;
+  document.querySelector('#board-workspace').hidden = true;
   if (!board.isMember) {
     document.querySelector('#board-access-message').textContent = 'Este quadro existe, mas você ainda não é membro. O conteúdo não foi carregado.';
     pendingRequestsPanel.hidden = true;
@@ -138,16 +140,13 @@ async function loadBoard(boardId) {
 
   const result = await requestJson(`/api/boards/${encodeURIComponent(boardId)}/content`);
   document.querySelector('#board-access-message').textContent = `${result.elements.length} elemento(s) no quadro.`;
-  for (const element of result.elements) {
-    const item = document.createElement('li');
-    item.textContent = `${element.type} · ${element.id}`;
-    content.append(item);
-  }
-  if (!result.elements.length) {
-    const item = document.createElement('li');
-    item.textContent = 'Este quadro ainda não tem conteúdo.';
-    content.append(item);
-  }
+  const { mountBoardCanvas } = await import('/board.bundle.js');
+  mountedBoard = mountBoardCanvas({
+    canvas: document.querySelector('#board-canvas'),
+    toolbar: document.querySelector('#board-toolbar'),
+    elements: result.elements,
+  });
+  document.querySelector('#board-workspace').hidden = false;
 }
 
 accessRequestForm.addEventListener('submit', async (event) => {
@@ -226,6 +225,8 @@ document.querySelector('#logout-button').addEventListener('click', async () => {
     await postJson('/api/auth/logout', {});
     accountPanel.hidden = true;
     authPanel.hidden = false;
+    mountedBoard?.destroy();
+    mountedBoard = null;
     loginForm.reset();
     showForm('login');
   } catch (error) {

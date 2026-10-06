@@ -7,7 +7,9 @@
     "node": ">=22.13.0"
   },
   "scripts": {
+    "prestart": "npm run build:client",
     "start": "node src/server/main.js",
+    "build:client": "esbuild src/public/board-entry.js --bundle --format=esm --outfile=src/public/board.bundle.js",
     "smoke": "node --test test/foundation.smoke.test.js test/auth.smoke.test.js test/boards.smoke.test.js test/access-requests.test.js test/revocation.test.js"
   },
   "dependencies": {
@@ -17,6 +19,7 @@
     "yjs": "13.6.27"
   },
   "devDependencies": {
+    "esbuild": "0.25.9",
     "fake-indexeddb": "6.2.5"
   }
 }
