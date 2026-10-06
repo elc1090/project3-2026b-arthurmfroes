@@ -7,6 +7,7 @@ import { handleAuthRequest } from './auth.js';
 import { handleBoardRequest } from './boards.js';
 import { createBoardUpdateStore } from './board-update-store.js';
 import { attachBoardSync } from './board-sync.js';
+import { attachSignaling, createSignalingState, handleSignalingHttpRequest } from './signaling.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
@@ -58,8 +59,12 @@ export async function createAppServer(options = {}) {
   const db = options.db ?? await openDatabase();
   const boardUpdateStore = options.boardUpdateStore ?? createBoardUpdateStore(db);
   const trustProxy = options.trustProxy ?? process.env.TRUST_PROXY === 'true';
+  const signalingState = options.signalingState ?? createSignalingState(
+    process.env.SIGNALING_SECRET ? Buffer.from(process.env.SIGNALING_SECRET) : undefined,
+  );
   const server = createServer(async (request, response) => {
     if (await handleAuthRequest(request, response, db, { trustProxy })) return;
+    if (handleSignalingHttpRequest(request, response, db, signalingState)) return;
     if (await handleBoardRequest(request, response, db, boardUpdateStore)) return;
 
     if (request.method === 'GET' && request.url === '/health') {
@@ -94,6 +99,7 @@ export async function createAppServer(options = {}) {
     }
   });
   attachBoardSync(server, { db, updateStore: boardUpdateStore });
+  server.signaling = attachSignaling(server, db, signalingState);
   return server;
 }
 
