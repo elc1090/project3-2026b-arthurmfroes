@@ -52,7 +52,7 @@ When multiple implementers share this uncommitted working tree, assign exclusive
 - [ ] 5.2 Adapt private WebRTC signaling with membership and board-epoch checks; verify an unapproved or revoked account cannot subscribe or publish to a board topic.
 - [ ] 5.3 Connect `y-webrtc` and server synchronization to the same browser document; verify two separate browser profiles receive a direct edit while the server path is paused and converge again when it resumes.
 - [ ] 5.4 On revocation, advance the board epoch and reconnect remaining members without the revoked peer; verify active honest peers close the old room and the revoked account cannot join the new one.
-- [ ] 5.5 Add ephemeral presence, remote cursors, and throttled stroke/drag previews; verify live previews appear while only completed actions enter the durable board state.
+- [ ] 5.5 Add ephemeral presence, P2P-only remote cursors, and throttled stroke/drag previews; verify cursors never traverse or persist on the VPS, live previews appear when their transport is available, and only completed actions enter the durable board state.
 
 ## 6. Images and original product behavior
 

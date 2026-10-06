@@ -68,7 +68,7 @@ Alternative: putting image bytes into every Yjs document update simplifies offli
 
 ### 7. Interaction frequency, presence, and undo
 
-Use Awareness for connected users and cursors. Throttle live stroke previews and drag previews as ephemeral messages; commit the completed stroke or final geometry once per gesture in a Yjs transaction. This preserves the live experience without persisting every pointer movement. Scope undo/redo to local transaction origins with `Y.UndoManager` where its behavior matches the product, and use explicit semantic handling for deletion or eraser actions that need an atomic replacement. Remote edits must not enter another member's undo stack.
+Use Awareness for connected users and cursors, but send cursor positions only through the WebRTC peer provider. The VPS sync provider does not relay Awareness cursor fields and the server never persists them. If direct peers are unavailable, board edits still use the VPS while remote cursors are absent. Throttle live stroke previews and drag previews as ephemeral messages; commit the completed stroke or final geometry once per gesture in a Yjs transaction. This preserves the live experience without persisting every pointer movement. Scope undo/redo to local transaction origins with `Y.UndoManager` where its behavior matches the product, and use explicit semantic handling for deletion or eraser actions that need an atomic replacement. Remote edits must not enter another member's undo stack.
 
 Alternative: committing every pointer move or point to Yjs provides a very detailed log but increases network traffic, document size, and undo complexity without improving the final board state.
 

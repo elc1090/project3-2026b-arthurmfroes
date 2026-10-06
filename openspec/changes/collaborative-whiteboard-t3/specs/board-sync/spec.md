@@ -77,6 +77,12 @@ The system SHALL distinguish an edit visible only locally, visible on another pe
 ### Requirement: Ephemeral collaboration signals
 The system SHALL preserve connected-member presence, remote cursors, and live stroke previews without making their transient states part of durable board content.
 
+Remote cursor positions SHALL travel only over established peer connections. The server SHALL NOT relay or persist cursor positions. If two members can synchronize board content only through the VPS, they may temporarily have no remote cursor display.
+
 #### Scenario: Live stroke
 - **WHEN** a member draws a stroke while connected to another member
 - **THEN** the other member can see its progress and the completed stroke remains in the board after the preview ends
+
+#### Scenario: Server-only board synchronization
+- **WHEN** two members can exchange board updates through the VPS but have no direct peer connection
+- **THEN** their board content still synchronizes and neither receives the other's cursor position through the VPS
