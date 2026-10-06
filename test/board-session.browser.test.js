@@ -25,6 +25,7 @@ const fixtureHtml = `<!doctype html>
     const initialPeerPaused = new URL(location.href).searchParams.get('pausePeerSync') === 'true';
     window.__durableAcks = [];
     window.__syncEvents = [];
+    window.__presenceEvents = [];
     window.__sessionErrors = [];
     try {
       window.__session = await openBoardSession(boardId, {
@@ -33,6 +34,9 @@ const fixtureHtml = `<!doctype html>
         onEvent: (type, detail) => window.__syncEvents.push({ type, detail }),
       });
       window.__session.on('durable-ack', ack => window.__durableAcks.push(ack));
+      for (const type of ['peer-presence', 'peer-cursor', 'peer-stroke-preview']) {
+        window.__session.on(type, detail => window.__presenceEvents.push({ type, detail }));
+      }
       window.__session.on('error', error => window.__sessionErrors.push(String(error)));
       window.__canvas = mountBoardCanvas({
         doc: window.__session.doc,
@@ -57,13 +61,18 @@ function addAccount(db, username) {
   return { accountId, token };
 }
 
-async function openTestPage(context, baseUrl, boardId, { pauseServerSync = false, pausePeerSync = false } = {}) {
+async function openTestPage(context, baseUrl, boardId, {
+  pauseServerSync = false,
+  pausePeerSync = false,
+  blockSignaling = false,
+} = {}) {
   await context.route('**/__board-session-test*', (route) => route.fulfill({
     status: 200,
     contentType: 'text/html; charset=utf-8',
     body: fixtureHtml,
   }));
   const page = await context.newPage();
+  if (blockSignaling) await page.routeWebSocket(/\/api\/signaling$/, () => {});
   const query = new URLSearchParams({ boardId });
   if (pauseServerSync) query.set('pauseServerSync', 'true');
   if (pausePeerSync) query.set('pausePeerSync', 'true');
@@ -159,6 +168,40 @@ test('two isolated Chrome profiles exchange through WebRTC with board WS paused,
     assert.deepEqual((await alicePage.evaluate(() => window.__session.p2pStatus)).bcPeers, []);
     assert.deepEqual((await bobPage.evaluate(() => window.__session.p2pStatus)).bcPeers, []);
 
+    await alicePage.evaluate(() => {
+      window.__session.setLocalPresence({ displayName: 'Alice', color: '#c30' });
+      window.__session.setLocalCursor({ x: 123.5, y: 78 });
+      window.__session.setStrokePreview({ tool: 'pen', points: [{ x: 120, y: 75 }, { x: 123.5, y: 78 }] });
+    });
+    await bobPage.waitForFunction(() => window.__presenceEvents.some(({ type, detail }) =>
+      type === 'peer-cursor' && detail.x === 123.5 && detail.y === 78), null, { timeout: 10_000 });
+    assert.equal(await bobPage.evaluate(() => window.__presenceEvents.some(({ type, detail }) =>
+      type === 'peer-presence' && detail.displayName === 'Alice' && detail.color === '#c30')), true);
+    assert.equal(await bobPage.evaluate(() => window.__presenceEvents.some(({ type, detail }) =>
+      type === 'peer-stroke-preview' && detail.tool === 'pen' && detail.points.length === 2)), true);
+
+    const aliceSameProfilePage = await openTestPage(aliceContext, baseUrl, boardId, { blockSignaling: true });
+    await aliceSameProfilePage.waitForFunction(() => window.__session.serverStatus === 'connected', null, { timeout: 5_000 });
+    await aliceSameProfilePage.waitForTimeout(300);
+    assert.deepEqual((await aliceSameProfilePage.evaluate(() => window.__session.p2pStatus)).bcPeers, [],
+      'same-profile tabs must not discover each other through BroadcastChannel');
+    assert.equal(await aliceSameProfilePage.evaluate(() => window.__session.p2pPeerCount), 0,
+      'the same-profile test tab has no signaling route, so it cannot receive through WebRTC');
+    assert.equal(await aliceSameProfilePage.evaluate(() => window.__presenceEvents.some(({ type }) => type === 'peer-cursor')), false,
+      'a tab opened after a cursor update must not receive that cursor through BroadcastChannel');
+    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM board_updates WHERE board_id = ?').get(boardId).count, 0,
+      'presence and previews must not create durable Yjs updates');
+    await aliceSameProfilePage.evaluate(() => window.__session.destroy());
+    await aliceSameProfilePage.close();
+    await alicePage.evaluate(() => {
+      window.__session.setLocalCursor(null);
+      window.__session.setStrokePreview(null);
+      window.__session.setLocalPresence(null);
+    });
+    await bobPage.waitForFunction(() => window.__presenceEvents.some(({ type, detail }) => type === 'peer-cursor' && detail.removed)
+      && window.__presenceEvents.some(({ type, detail }) => type === 'peer-stroke-preview' && detail.removed)
+      && window.__presenceEvents.some(({ type, detail }) => type === 'peer-presence' && detail.removed), null, { timeout: 5_000 });
+
     await Promise.all([
       alicePage.evaluate(() => window.__session.pauseServerSync()),
       bobPage.evaluate(() => window.__session.pauseServerSync()),
@@ -194,6 +237,9 @@ test('two isolated Chrome profiles exchange through WebRTC with board WS paused,
     assert.equal(await alicePage.evaluate(() => window.__durableAcks.length), 0,
       'peer receipt must not be reported as a durable server acknowledgement');
 
+    await alicePage.evaluate(() => window.__session.setLocalCursor({ x: 210, y: 160 }));
+    await bobPage.waitForFunction(() => window.__presenceEvents.some(({ type, detail }) =>
+      type === 'peer-cursor' && detail.x === 210 && detail.y === 160), null, { timeout: 5_000 });
     await Promise.all([
       alicePage.evaluate(() => window.__session.pausePeerSync()),
       bobPage.evaluate(() => window.__session.pausePeerSync()),
@@ -202,6 +248,9 @@ test('two isolated Chrome profiles exchange through WebRTC with board WS paused,
       alicePage.waitForFunction(() => window.__session.p2pPeerCount === 0, null, { timeout: 5_000 }),
       bobPage.waitForFunction(() => window.__session.p2pPeerCount === 0, null, { timeout: 5_000 }),
     ]);
+    await bobPage.waitForFunction(() => window.__presenceEvents.some(({ type, detail }) =>
+      type === 'peer-cursor' && detail.removed), null, { timeout: 5_000 });
+    const presenceEventCountAfterDisconnect = await bobPage.evaluate(() => window.__presenceEvents.length);
     await drawRectangle(alicePage, 180, 150);
     await waitForElementCount(alicePage, 2);
     assert.equal(await bobPage.evaluate(() => window.__session.doc.getMap('elements').size), 1,
@@ -225,6 +274,10 @@ test('two isolated Chrome profiles exchange through WebRTC with board WS paused,
       bobPage.waitForFunction(() => window.__session.p2pPeerCount > 0, null, { timeout: 15_000 }),
     ]);
     await bobPage.waitForFunction(() => window.__session.doc.getMap('elements').size === 2, null, { timeout: 15_000 });
+    await bobPage.waitForTimeout(250);
+    assert.equal(await bobPage.evaluate((start) => window.__presenceEvents.slice(start).some(({ type, detail }) =>
+      type === 'peer-cursor' && !detail.removed), presenceEventCountAfterDisconnect), false,
+    'a cursor cleared before pause must not be restored into the Room.connect snapshot');
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM board_updates WHERE board_id = ?').get(boardId).count, 0);
     assert.equal(await alicePage.evaluate(() => window.__durableAcks.length), 0);
 

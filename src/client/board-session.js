@@ -1,6 +1,7 @@
 import { WebrtcProvider } from 'y-webrtc';
 import { openOfflineBoard } from './offline-board.js';
 import { createBoardSyncStatus } from './board-sync-status.js';
+import { createBoardPresence } from './board-presence.js';
 import { createServerSyncProvider } from './server-sync-provider.js';
 import { createSyncEventTracker } from './sync-event-tracker.js';
 
@@ -50,6 +51,7 @@ export async function openBoardSession(boardId, {
   }
 
   const eventTracker = createSyncEventTracker(boardId, { onEvent: emit });
+  const boardPresence = createBoardPresence(boardId, emit);
 
   const serverSync = createServerSyncProvider(doc, boardId, {
     WebSocketImpl,
@@ -107,6 +109,7 @@ export async function openBoardSession(boardId, {
 
   function disposePeerProvider(provider) {
     removeSignalingListeners(provider);
+    const releasePresence = boardPresence.releaseProvider(provider);
     const room = provider.room;
     const connections = room ? [...room.webrtcConns.values()] : [];
     const peerClosed = connections.map((connection) => new Promise((resolve) => {
@@ -117,7 +120,10 @@ export async function openBoardSession(boardId, {
       }
     }));
     provider.destroy();
-    return Promise.resolve(provider.key).then(() => Promise.all(peerClosed)).then(() => {
+    return Promise.resolve(provider.key).then(() => {
+      releasePresence();
+      return Promise.all(peerClosed);
+    }).then(() => {
       if (connections.length) {
         emit('p2p-peers-removed', { topic: provider.roomName, peers: connections.map(({ remotePeerId }) => remotePeerId) });
       }
@@ -224,6 +230,7 @@ export async function openBoardSession(boardId, {
       });
       peerEpoch = access.epoch;
       peerProvider = nextProvider;
+      void boardPresence.attachProvider(nextProvider).catch((error) => emit('error', error));
       listenForBoardEpoch(nextProvider);
       nextProvider.on('status', publishPeerState);
       nextProvider.on('peers', (event) => {
@@ -263,6 +270,7 @@ export async function openBoardSession(boardId, {
       peerConnectGeneration += 1;
       if (signalingRetry !== null) clearTimeout(signalingRetry);
       signalingRetry = null;
+      boardPresence.clearForDisconnect();
       peerProvider?.disconnect();
       publishPeerState();
     },
@@ -271,8 +279,12 @@ export async function openBoardSession(boardId, {
       peerPaused = false;
       if (peerProvider) peerProvider.connect();
       else void connectPeer();
+      boardPresence.resumeAfterConnect();
       publishPeerState();
     },
+    setLocalPresence(value) { boardPresence.setLocalPresence(value); },
+    setLocalCursor(value) { boardPresence.setLocalCursor(value); },
+    setStrokePreview(value) { boardPresence.setStrokePreview(value); },
     on(type, listener) {
       if (!sessionListeners.has(type)) sessionListeners.set(type, new Set());
       sessionListeners.get(type).add(listener);
@@ -282,6 +294,7 @@ export async function openBoardSession(boardId, {
     destroy() {
       if (destroyPromise) return destroyPromise;
       destroyed = true;
+      boardPresence.destroy();
       peerConnectGeneration += 1;
       if (signalingRetry !== null) clearTimeout(signalingRetry);
       signalingRetry = null;
