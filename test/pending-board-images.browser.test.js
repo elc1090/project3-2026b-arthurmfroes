@@ -224,3 +224,179 @@ test('offline paste survives profile closure and publishes to another authorized
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test('the real board page restores an offline paste after profile reopen and shares it after upload', { timeout: 60_000 }, async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'whiteboard-real-pending-image-'));
+  const db = await openDatabase(join(directory, 'board.sqlite'));
+  const owner = addAccount(db, 'realpendingowner');
+  const member = addAccount(db, 'realpendingmember');
+  const boardId = randomUUID();
+  db.prepare('INSERT INTO boards (id, title) VALUES (?, ?)').run(boardId, 'Real offline image recovery');
+  const addMember = db.prepare('INSERT INTO memberships (board_id, account_id) VALUES (?, ?)');
+  addMember.run(boardId, owner.accountId);
+  addMember.run(boardId, member.accountId);
+
+  await build({
+    absWorkingDir: root,
+    entryPoints: ['src/public/board-session-entry.js'],
+    bundle: true,
+    format: 'esm',
+    outfile: join(root, 'src/public/board.bundle.js'),
+  });
+  const server = await createAppServer({ db, assetStorageDirectory: join(directory, 'assets') });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const browserPath = ['/usr/bin/google-chrome', '/snap/bin/chromium', '/usr/bin/chromium'].find(existsSync);
+  assert.ok(browserPath, 'a local Chromium executable is required for this focused page integration test');
+  const ownerProfile = join(directory, 'owner-profile');
+  let ownerContext;
+  let memberContext;
+  let uploadsAllowed = false;
+  const assetPostPattern = `**/api/boards/${boardId}/assets`;
+  const blockOrPassAssetPost = route => {
+    if (route.request().method() === 'POST' && !uploadsAllowed) {
+      return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Image upload is temporarily unavailable.' }) });
+    }
+    return route.continue();
+  };
+  const setupProfile = async profilePath => chromium.launchPersistentContext(profilePath, {
+    executablePath: browserPath, headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'],
+  });
+  const openRealBoard = async (context, token) => {
+    await context.addCookies([{ name: 'whiteboard_session', value: token, url: baseUrl }]);
+    await context.route(assetPostPattern, blockOrPassAssetPost);
+    const page = await context.newPage();
+    const pageErrors = [];
+    page.on('pageerror', error => pageErrors.push(String(error)));
+    await page.goto(`${baseUrl}/boards/${boardId}`);
+    await page.locator('#board-workspace').waitFor({ state: 'visible', timeout: 10_000 });
+    return { page, pageErrors };
+  };
+  const canvasHasPixels = page => page.evaluate(() => {
+    const { data } = document.querySelector('#board-canvas').getContext('2d')
+      .getImageData(0, 0, document.querySelector('#board-canvas').width, document.querySelector('#board-canvas').height);
+    for (let index = 3; index < data.length; index += 4) if (data[index] > 0) return true;
+    return false;
+  });
+  const pendingRecords = page => page.evaluate(boardId => new Promise((resolve, reject) => {
+    const open = indexedDB.open('whiteboard-t3:pending-images', 1);
+    open.onerror = () => reject(open.error);
+    open.onsuccess = () => {
+      const database = open.result;
+      const request = database.transaction('images', 'readonly').objectStore('images').getAll();
+      request.onsuccess = () => {
+        resolve(request.result.filter(record => record.boardId === boardId).map(record => ({
+          pendingId: record.pendingId, elementId: record.elementId, geometry: record.geometry,
+          mimeType: record.mimeType, bytes: record.blob.size,
+        })));
+        database.close();
+      };
+      request.onerror = () => { database.close(); reject(request.error); };
+    };
+  }), boardId);
+  const persistedElementIds = page => page.evaluate(async boardId => {
+    const { openBoardSession } = await import('/board.bundle.js');
+    const inspection = await openBoardSession(boardId, { initialServerPaused: true, initialPeerPaused: true });
+    await inspection.ready;
+    const ids = inspection.doc.getArray('order').toArray();
+    await inspection.destroy();
+    return ids;
+  }, boardId);
+
+  try {
+    ownerContext = await setupProfile(ownerProfile);
+    const firstOwner = await openRealBoard(ownerContext, owner.token);
+    await firstOwner.page.waitForFunction(() => document.querySelector('#board-canvas')?.getContext('2d'));
+    await firstOwner.page.evaluate(async () => {
+      const blob = await (await fetch('/api/templates/fsm-reference', { cache: 'no-store' })).blob();
+      const transfer = new DataTransfer();
+      transfer.items.add(new File([blob], 'offline-paste.png', { type: blob.type || 'image/png' }));
+      document.dispatchEvent(new ClipboardEvent('paste', {
+        clipboardData: transfer, bubbles: true, cancelable: true,
+      }));
+    });
+    await firstOwner.page.waitForFunction(() => {
+      const status = document.querySelector('#board-image-status')?.textContent ?? '';
+      return status && !status.startsWith('Enviando imagem da área de transferência');
+    }, null, { timeout: 10_000 });
+    await firstOwner.page.waitForFunction(async () => {
+      const canvas = document.querySelector('#board-canvas');
+      const { data } = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+      return data.some((channel, index) => index % 4 === 3 && channel > 0);
+    }, null, { timeout: 10_000 });
+    const queuedBeforeClose = await pendingRecords(firstOwner.page);
+    assert.equal(queuedBeforeClose.length, 1, `the real page queued the Blob: ${JSON.stringify({
+      queuedBeforeClose,
+      status: await firstOwner.page.locator('#board-image-status').textContent(),
+      pageErrors: firstOwner.pageErrors,
+      assetCount: db.prepare('SELECT COUNT(*) AS count FROM assets WHERE board_id = ?').get(boardId).count,
+    })}`);
+    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM assets WHERE board_id = ?').get(boardId).count, 0,
+      'a rejected asset POST does not create a server asset');
+
+    await firstOwner.page.close();
+    await ownerContext.close();
+    ownerContext = null;
+
+    ownerContext = await setupProfile(ownerProfile);
+    const reopenedOwner = await openRealBoard(ownerContext, owner.token);
+    await reopenedOwner.page.waitForFunction(async () => {
+      const canvas = document.querySelector('#board-canvas');
+      const { data } = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+      return data.some((channel, index) => index % 4 === 3 && channel > 0);
+    }, null, { timeout: 10_000 });
+    const restoredPending = await pendingRecords(reopenedOwner.page);
+    assert.equal(restoredPending.length, 1, `the actual page restored a pending Blob from this persistent profile: ${JSON.stringify(restoredPending)}`);
+    assert.ok(restoredPending[0].bytes > 0);
+    assert.deepEqual(await persistedElementIds(reopenedOwner.page), [],
+      'the reopened page has no incomplete image reference in its persisted Yjs document');
+
+    memberContext = await setupProfile(join(directory, 'member-profile'));
+    const otherMember = await openRealBoard(memberContext, member.token);
+    assert.equal(await canvasHasPixels(otherMember.page), false,
+      'another member sees no image while its bytes and Yjs reference are still local');
+    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM assets WHERE board_id = ?').get(boardId).count, 0);
+
+    uploadsAllowed = true;
+    await reopenedOwner.page.evaluate(() => window.dispatchEvent(new Event('online')));
+    await otherMember.page.waitForFunction(async () => {
+      const canvas = document.querySelector('#board-canvas');
+      const { data } = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+      return data.some((channel, index) => index % 4 === 3 && channel > 0);
+    }, null, { timeout: 15_000 });
+    const asset = db.prepare('SELECT id AS assetId FROM assets WHERE board_id = ?').get(boardId);
+    assert.ok(asset?.assetId, 'reconnection uploaded the pending image bytes');
+    await reopenedOwner.page.waitForFunction(async boardId => {
+      const open = indexedDB.open('whiteboard-t3:pending-images', 1);
+      const database = await new Promise((resolve, reject) => {
+        open.onsuccess = () => resolve(open.result);
+        open.onerror = () => reject(open.error);
+      });
+      const records = await new Promise((resolve, reject) => {
+        const request = database.transaction('images', 'readonly').objectStore('images').getAll();
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      database.close();
+      return records.every(record => record.boardId !== boardId);
+    }, boardId, { timeout: 10_000 });
+    const memberFetch = await otherMember.page.evaluate(async ({ id, assetId }) => {
+      const response = await fetch(`/api/boards/${encodeURIComponent(id)}/assets/${encodeURIComponent(assetId)}`, {
+        cache: 'no-store',
+      });
+      return { status: response.status, size: (await response.arrayBuffer()).byteLength };
+    }, { id: boardId, assetId: asset.assetId });
+    assert.equal(memberFetch.status, 200, 'the authorized member can fetch the uploaded asset');
+    assert.ok(memberFetch.size > 0);
+    assert.deepEqual(firstOwner.pageErrors, []);
+    assert.deepEqual(reopenedOwner.pageErrors, []);
+    assert.deepEqual(otherMember.pageErrors, []);
+  } finally {
+    await ownerContext?.close();
+    await memberContext?.close();
+    await new Promise(resolve => server.close(resolve));
+    db.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
