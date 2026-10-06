@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { mkdir, readFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
@@ -9,7 +9,10 @@ const root = resolve(here, '../..');
 const publicDir = resolve(root, 'src/public');
 const migrationDir = resolve(root, 'src/server/migrations');
 
-export async function openDatabase(filename = process.env.DATABASE_PATH ?? resolve(root, 'data/whiteboard.sqlite')) {
+export async function openDatabase(
+  filename = process.env.DATABASE_PATH ?? resolve(root, 'data/whiteboard.sqlite'),
+  migrationsPath = migrationDir,
+) {
   await mkdir(dirname(filename), { recursive: true });
   const db = new Database(filename);
   db.pragma('foreign_keys = ON');
@@ -19,14 +22,28 @@ export async function openDatabase(filename = process.env.DATABASE_PATH ?? resol
     applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
   )`);
 
-  const applied = new Set(db.prepare('SELECT version FROM schema_migrations').all().map((row) => row.version));
-  if (!applied.has(1)) {
-    const sql = await readFile(resolve(migrationDir, '001-foundation.sql'), 'utf8');
-    const apply = db.transaction(() => {
-      db.exec(sql);
-      db.prepare('INSERT INTO schema_migrations (version) VALUES (1)').run();
-    });
-    apply();
+  try {
+    const applied = new Set(db.prepare('SELECT version FROM schema_migrations').all().map((row) => row.version));
+    const filenames = (await readdir(migrationsPath))
+      .filter((name) => /^\d{3}-.+\.sql$/.test(name))
+      .sort((left, right) => Number(left.slice(0, 3)) - Number(right.slice(0, 3)));
+    const versions = new Set();
+    for (const name of filenames) {
+      const version = Number(name.slice(0, 3));
+      if (versions.has(version)) throw new Error(`Duplicate migration version ${version}`);
+      versions.add(version);
+      if (applied.has(version)) continue;
+
+      const sql = await readFile(resolve(migrationsPath, name), 'utf8');
+      const apply = db.transaction(() => {
+        db.exec(sql);
+        db.prepare('INSERT INTO schema_migrations (version) VALUES (?)').run(version);
+      });
+      apply();
+    }
+  } catch (error) {
+    db.close();
+    throw error;
   }
   return db;
 }
@@ -42,7 +59,13 @@ export async function createAppServer(options = {}) {
       return;
     }
 
-    const requestedPath = request.url === '/' ? 'index.html' : decodeURIComponent(request.url.slice(1).split('?')[0]);
+    let requestedPath;
+    try {
+      requestedPath = request.url === '/' ? 'index.html' : decodeURIComponent(request.url.slice(1).split('?')[0]);
+    } catch {
+      response.writeHead(400).end();
+      return;
+    }
     const filePath = resolve(publicDir, requestedPath);
     if (!filePath.startsWith(`${publicDir}/`)) {
       response.writeHead(404).end();

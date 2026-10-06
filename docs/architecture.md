@@ -15,7 +15,9 @@ produto original e não é servido nem modificado por esta base.
 Os contratos TypeScript em `src/shared/contracts.d.ts` fixam somente os campos de
 fronteira necessários às próximas tarefas. Eles não definem rotas, protocolo de rede
 nem formato interno do conteúdo Yjs. A migração `001-foundation.sql` cria o esquema
-estrutural correspondente; cada alteração posterior deve entrar como nova migração.
+estrutural correspondente; cada alteração posterior deve entrar como arquivo
+`NNN-nome.sql` em `src/server/migrations/`. O bootstrap ordena pelo prefixo numérico
+e registra cada migração somente depois de executá-la com sucesso em sua transação.
 
 Requisitos locais: Node.js 22.13 ou superior e npm. As versões diretas estão exatas
 em `package.json` e todas as versões transitivas são travadas em `package-lock.json`.
