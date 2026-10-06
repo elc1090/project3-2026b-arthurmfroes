@@ -4,6 +4,7 @@ import { createBoardSyncStatus } from './board-sync-status.js';
 import { createBoardPresence } from './board-presence.js';
 import { createServerSyncProvider } from './server-sync-provider.js';
 import { createSyncEventTracker } from './sync-event-tracker.js';
+import { attachWebrtcPayloadMetrics, createSyncExperimentMetrics } from './sync-experiment.js';
 
 const SIGNALING_RETRY_DELAYS_MS = [1_000, 2_000, 5_000, 10_000, 30_000];
 
@@ -38,6 +39,8 @@ export async function openBoardSession(boardId, {
   const sessionListeners = new Map();
   const signalingListenerCleanups = new WeakMap();
   const syncStatus = createBoardSyncStatus(boardId);
+  const experimentMetrics = createSyncExperimentMetrics();
+  const peerMetricsCleanups = new WeakMap();
 
   function dispatch(type, detail) {
     onEvent(type, detail);
@@ -59,6 +62,7 @@ export async function openBoardSession(boardId, {
     initialServerPaused,
     onEvent: emit,
     eventTracker,
+    experimentMetrics,
   });
 
   function onDocumentUpdate(update, origin) {
@@ -109,6 +113,8 @@ export async function openBoardSession(boardId, {
 
   function disposePeerProvider(provider) {
     removeSignalingListeners(provider);
+    peerMetricsCleanups.get(provider)?.();
+    peerMetricsCleanups.delete(provider);
     const releasePresence = boardPresence.releaseProvider(provider);
     const room = provider.room;
     const connections = room ? [...room.webrtcConns.values()] : [];
@@ -230,6 +236,7 @@ export async function openBoardSession(boardId, {
       });
       peerEpoch = access.epoch;
       peerProvider = nextProvider;
+      peerMetricsCleanups.set(nextProvider, attachWebrtcPayloadMetrics(nextProvider, experimentMetrics));
       void boardPresence.attachProvider(nextProvider).catch((error) => emit('error', error));
       listenForBoardEpoch(nextProvider);
       nextProvider.on('status', publishPeerState);
@@ -258,6 +265,8 @@ export async function openBoardSession(boardId, {
     get serverStatus() { return serverSync.status; },
     get p2pStatus() { return { ...peerState }; },
     get syncStatus() { return syncStatus.getSnapshot(); },
+    get experimentMetrics() { return experimentMetrics.snapshot(); },
+    resetExperimentMetrics() { experimentMetrics.reset(); },
     get p2pPeerCount() {
       return [...(peerProvider?.room?.webrtcConns?.values() ?? [])].filter((connection) => connection.connected).length;
     },

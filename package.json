@@ -10,6 +10,7 @@
     "prestart": "npm run build:client",
     "start": "node src/server/main.js",
     "build:client": "esbuild src/public/board-session-entry.js --bundle --format=esm --outfile=src/public/board.bundle.js",
+    "experiment:sync": "node scripts/run-sync-experiment.js",
     "smoke": "node --test test/foundation.smoke.test.js test/auth.smoke.test.js test/boards.smoke.test.js test/access-requests.test.js test/revocation.test.js test/signaling.test.js test/assets.test.js test/board-images.test.js"
   },
   "dependencies": {

@@ -4,6 +4,10 @@ const SERVER_ORIGIN = Symbol('board-server-update');
 const MAX_UPDATE_BYTES = 3 * 1024 * 1024;
 const RECONNECT_DELAYS_MS = [250, 500, 1_000, 2_000, 5_000];
 
+function recordExperimentMetric(metrics, direction, payload, message) {
+  try { metrics?.recordWebSocket(direction, payload, message); } catch { /* measurement must not affect sync */ }
+}
+
 /** Synchronize one Y.Doc with the authenticated durable server replica. */
 export function createServerSyncProvider(doc, boardId, {
   WebSocketImpl = globalThis.WebSocket,
@@ -11,6 +15,7 @@ export function createServerSyncProvider(doc, boardId, {
   initialServerPaused = false,
   onEvent = () => {},
   eventTracker = null,
+  experimentMetrics = null,
 } = {}) {
   if (!doc || typeof doc.on !== 'function') throw new TypeError('A Y.Doc is required');
   if (typeof boardId !== 'string' || boardId.length === 0) throw new TypeError('boardId must be a non-empty string');
@@ -37,7 +42,9 @@ export function createServerSyncProvider(doc, boardId, {
 
   function sendJson(message) {
     if (socket?.readyState !== WebSocketImpl.OPEN) return false;
-    socket.send(JSON.stringify(message));
+    const payload = JSON.stringify(message);
+    socket.send(payload);
+    recordExperimentMetric(experimentMetrics, 'sent', payload, message);
     return true;
   }
 
@@ -64,12 +71,15 @@ export function createServerSyncProvider(doc, boardId, {
 
   function onSocketMessage(event) {
     let message;
+    const payload = typeof event.data === 'string' ? event.data : String(event.data);
     try {
-      message = JSON.parse(typeof event.data === 'string' ? event.data : String(event.data));
+      message = JSON.parse(payload);
     } catch (error) {
+      recordExperimentMetric(experimentMetrics, 'received', payload);
       onEvent('error', error);
       return;
     }
+    recordExperimentMetric(experimentMetrics, 'received', payload, message);
 
     if (message.type === 'sync') {
       try {
