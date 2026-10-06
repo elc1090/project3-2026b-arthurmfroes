@@ -42,6 +42,19 @@ function createElementRecord({ type, geometry, style = {}, data = {} }) {
   return record;
 }
 
+function validateElementData(type, data) {
+  if (type !== 'image') return;
+  if (typeof data.assetId !== 'string' || data.assetId.length === 0) {
+    throw new TypeError('image element data must include an assetId');
+  }
+  const hasInlineImage = Object.entries(data).some(([key, value]) =>
+    /^(dataurl|base64|bytes|blob)$/i.test(key)
+    || (typeof value === 'string' && /^data:image\//i.test(value)));
+  if (hasInlineImage) {
+    throw new TypeError('image element data must reference an uploaded asset, not inline image bytes');
+  }
+}
+
 /**
  * Return the shared collections for one board document.
  * Each board must own a distinct Y.Doc; its `elements` map is keyed by stable
@@ -83,6 +96,7 @@ export function addElement(doc, { id, type, geometry, style = {}, data = {} }) {
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
     throw new TypeError('element data must be an object');
   }
+  validateElementData(type, data);
 
   const { elements, order } = getBoardMaps(doc);
   if (elements.has(id)) {

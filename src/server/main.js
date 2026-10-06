@@ -8,6 +8,7 @@ import { handleBoardRequest } from './boards.js';
 import { createBoardUpdateStore } from './board-update-store.js';
 import { attachBoardSync } from './board-sync.js';
 import { attachSignaling, createSignalingState, handleSignalingHttpRequest } from './signaling.js';
+import { handleAssetRequest } from './assets.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
@@ -58,6 +59,7 @@ const contentTypes = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; c
 export async function createAppServer(options = {}) {
   const db = options.db ?? await openDatabase();
   const boardUpdateStore = options.boardUpdateStore ?? createBoardUpdateStore(db);
+  const assetStorageDirectory = options.assetStorageDirectory ?? resolve(root, 'data/assets');
   const trustProxy = options.trustProxy ?? process.env.TRUST_PROXY === 'true';
   const signalingState = options.signalingState ?? createSignalingState(
     process.env.SIGNALING_SECRET ? Buffer.from(process.env.SIGNALING_SECRET) : undefined,
@@ -65,6 +67,7 @@ export async function createAppServer(options = {}) {
   const server = createServer(async (request, response) => {
     if (await handleAuthRequest(request, response, db, { trustProxy })) return;
     if (handleSignalingHttpRequest(request, response, db, signalingState)) return;
+    if (await handleAssetRequest(request, response, db, assetStorageDirectory)) return;
     if (await handleBoardRequest(request, response, db, boardUpdateStore)) return;
 
     if (request.method === 'GET' && request.url === '/health') {
