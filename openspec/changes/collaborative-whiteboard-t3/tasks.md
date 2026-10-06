@@ -34,7 +34,7 @@ When multiple implementers share this uncommitted working tree, assign exclusive
 
 ## 3. Collaborative board model
 
-- [ ] 3.1 Define stable element IDs, per-element Yjs maps, atomic geometry values, separate style values, and shared stacking order; verify concurrent move-plus-recolor, two moves, and overlapping elements converge in deterministic tests with reversed update arrival order.
+- [x] 3.1 Define stable element IDs, per-element Yjs maps, atomic geometry values, separate style values, and shared stacking order; verify concurrent move-plus-recolor, two moves, and overlapping elements converge in deterministic tests with reversed update arrival order.
 - [ ] 3.2 Implement delete markers and clipping replacements for eraser actions; verify delete-versus-update leaves the object absent and clipped strokes have stable visible segments after reconciliation.
 - [ ] 3.3 Bind Canvas actions and rendering to the Yjs board model with transaction-origin guards; verify a remote update renders once and does not emit a new local edit.
 - [ ] 3.4 Implement local-scope undo/redo for creation, movement, deletion, and erasing; verify undoing one member's action preserves an independent remote edit.
