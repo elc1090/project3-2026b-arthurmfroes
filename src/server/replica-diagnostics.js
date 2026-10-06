@@ -3,6 +3,7 @@ import { WebSocket, WebSocketServer } from 'ws';
 import { readBoardElements } from '../shared/board-model.js';
 import { getAuthenticatedSession } from './auth.js';
 import { authorizeBoardMembership } from './boards.js';
+import { createInspectionHistoryStore } from './inspection-history-store.js';
 
 const REPLICAS_PATH = /^\/api\/boards\/([^/]+)\/replicas$/;
 const MAX_MESSAGE_BYTES = 1024 * 1024;
@@ -20,6 +21,7 @@ const ELEMENT_TYPES = new Set(['image', 'rect', 'mux', 'alu', 'path', 'line', 'a
 export function attachReplicaDiagnostics(server, { db, updateStore, refreshIntervalMs = REPLICA_REFRESH_MS }) {
   const webSockets = new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE_BYTES, perMessageDeflate: false });
   const rooms = new Map();
+  const history = createInspectionHistoryStore(db);
   let disposed = false;
 
   server.on('upgrade', (request, socket, head) => {
@@ -97,7 +99,6 @@ export function attachReplicaDiagnostics(server, { db, updateStore, refreshInter
   function publishServerEvent(boardId, type, detail = {}) {
     if (!['server-received', 'durable-persisted'].includes(type)) return false;
     const room = rooms.get(boardId);
-    if (!room) return false;
     const event = {
       type,
       actionId: detail.actionId,
@@ -109,9 +110,12 @@ export function attachReplicaDiagnostics(server, { db, updateStore, refreshInter
       sourcePath: detail.sourcePath,
       firstArrivalPath: detail.firstArrivalPath,
     };
+    const replicaId = typeof detail.replicaId === 'string' ? detail.replicaId : 'vps';
+    history.recordEvent(boardId, replicaId, event);
+    if (!room) return true;
     for (const connection of room.connections) {
       if (closeUnauthorized(connection) || connection.ws.readyState !== WebSocket.OPEN) continue;
-      sendJson(connection.ws, { type: 'event', replicaId: 'vps', event });
+      sendJson(connection.ws, { type: 'event', replicaId, event });
     }
     return true;
   }
@@ -156,14 +160,48 @@ export function attachReplicaDiagnostics(server, { db, updateStore, refreshInter
         connection.ws.close(1008, 'Invalid replica projection');
         return;
       }
-      connection.elements = message.elements;
+      const fingerprint = JSON.stringify(message.elements);
+      if (fingerprint !== connection.fingerprint) {
+        connection.elements = message.elements;
+        connection.fingerprint = fingerprint;
+        history.recordSnapshot(connection.boardId, connection.replicaId, connection.elements, {
+          sequence: message.sequence,
+          clock: message.clock,
+        });
+      }
       sendRoomState(connection.room);
       return;
     }
 
-    // Metadata is only forwarded to live observers for the future bounded
-    // history feature. It is intentionally never retained or applied to Y.Doc.
+    if (message?.type === 'history-list') {
+      const requestId = typeof message.requestId === 'string' ? message.requestId.slice(0, 80) : '';
+      const kind = message.kind === 'events' ? 'events' : message.kind === 'snapshots' ? 'snapshots' : null;
+      if (!requestId || !kind) {
+        sendJson(connection.ws, { type: 'history-error', requestId, error: 'Invalid history query.' });
+        return;
+      }
+      const options = { before: message.before, limit: message.limit, replicaId: message.replicaId };
+      const rows = kind === 'snapshots'
+        ? history.listSnapshots(connection.boardId, options)
+        : history.listEvents(connection.boardId, options);
+      sendJson(connection.ws, { type: 'history-page', requestId, kind, rows, nextBefore: rows.length ? rows.at(-1).id : null });
+      return;
+    }
+
+    if (message?.type === 'history-snapshot') {
+      const requestId = typeof message.requestId === 'string' ? message.requestId.slice(0, 80) : '';
+      const snapshotId = Number(message.snapshotId);
+      const snapshot = requestId && Number.isSafeInteger(snapshotId) && snapshotId > 0
+        ? history.readSnapshot(connection.boardId, snapshotId)
+        : null;
+      sendJson(connection.ws, { type: 'history-snapshot', requestId, snapshot });
+      return;
+    }
+
+    // Event metadata is retained within the inspection-history bound and sent
+    // to current observers. Raw Yjs update bytes are never accepted or stored.
     if (message?.type === 'event' && validDiagnosticEvent(message.event)) {
+      history.recordEvent(connection.boardId, connection.replicaId, message.event);
       const payload = JSON.stringify({
         type: 'event',
         replicaId: connection.replicaId,
@@ -237,9 +275,11 @@ export function attachReplicaDiagnostics(server, { db, updateStore, refreshInter
       doc = updateStore.loadDocument(room.boardId);
       const elements = readBoardElements(doc);
       const fingerprint = JSON.stringify(elements);
-      if (force || fingerprint !== room.vpsFingerprint) {
+      const changed = fingerprint !== room.vpsFingerprint;
+      if (force || changed) {
         room.vpsElements = elements;
         room.vpsFingerprint = fingerprint;
+        if (changed) history.recordSnapshot(room.boardId, 'vps', elements);
         sendRoomState(room);
       }
     } catch {

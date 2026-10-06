@@ -1,3 +1,5 @@
+import { mountReplicaHistory } from './replica-history.js';
+
 const PREVIEW_WIDTH = 320;
 const PREVIEW_HEIGHT = 180;
 const MAX_DIAGNOSTIC_MESSAGE_BYTES = 1024 * 1024;
@@ -18,6 +20,7 @@ export function mountReplicaPanel({ boardId, session, root = document.querySelec
   let reconnectTimer = null;
   let publishTimer = null;
   let statusTimer = null;
+  let historyRefreshTimer = null;
   const localReplicaId = getStableReplicaId(boardId);
   let currentServerElements = null;
   let currentPeerViews = [];
@@ -26,6 +29,15 @@ export function mountReplicaPanel({ boardId, session, root = document.querySelec
   let peerPaused = false;
   const previewCards = new Map();
   const imageBitmaps = new Map();
+  const historyUI = mountReplicaHistory({ root, send: sendDiagnosticMessage });
+
+  function sendDiagnosticMessage(message) {
+    if (destroyed || socket?.readyState !== WebSocket.OPEN) return false;
+    const payload = JSON.stringify(message);
+    if (new TextEncoder().encode(payload).byteLength > MAX_DIAGNOSTIC_MESSAGE_BYTES) return false;
+    socket.send(payload);
+    return true;
+  }
 
   function cardFor(replicaId, label) {
     let card = previewCards.get(replicaId);
@@ -192,6 +204,7 @@ export function mountReplicaPanel({ boardId, session, root = document.querySelec
       if (socket !== current || destroyed) return;
       diagnosticState = 'ativo';
       sendSnapshot();
+      historyUI.refresh();
       updateStatus();
     });
     current.addEventListener('message', (event) => {
@@ -208,6 +221,11 @@ export function mountReplicaPanel({ boardId, session, root = document.querySelec
         renderPreviews();
       } else if (message.type === 'event') {
         root.dispatchEvent(new CustomEvent('replica-diagnostic-event', { detail: message }));
+        if (historyRefreshTimer === null) {
+          historyRefreshTimer = setTimeout(() => { historyRefreshTimer = null; historyUI.refresh(); }, 200);
+        }
+      } else if (message.type === 'history-page' || message.type === 'history-snapshot' || message.type === 'history-error') {
+        root.dispatchEvent(new CustomEvent('replica-history-message', { detail: message }));
       }
     });
     current.addEventListener('close', () => {
@@ -254,7 +272,9 @@ export function mountReplicaPanel({ boardId, session, root = document.querySelec
       if (publishTimer !== null) clearTimeout(publishTimer);
       if (reconnectTimer !== null) clearTimeout(reconnectTimer);
       if (statusTimer !== null) clearInterval(statusTimer);
+      if (historyRefreshTimer !== null) clearTimeout(historyRefreshTimer);
       session.doc.off('update', onDocumentUpdate);
+      historyUI.destroy();
       unsubscribeServer();
       unsubscribePeer();
       pauseServerButton.removeEventListener('click', onPauseServer);
