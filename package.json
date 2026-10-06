@@ -13,6 +13,10 @@
   "dependencies": {
     "argon2": "0.44.0",
     "better-sqlite3": "12.2.0",
+    "y-indexeddb": "^9.0.12",
     "yjs": "13.6.27"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^6.2.5"
   }
 }
