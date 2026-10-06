@@ -23,3 +23,8 @@ Requisitos locais: Node.js 22.13 ou superior e npm. As versões diretas estão e
 em `package.json` e todas as versões transitivas são travadas em `package-lock.json`.
 `npm ci` instala a árvore travada; `npm run smoke` valida entrada estática, health
 check e migração em um banco temporário.
+
+O cookie de sessão recebe `Secure` em uma conexão HTTPS direta. Para HTTPS terminado
+em proxy reverso local, configure `TRUST_PROXY=true` somente se o proxy confiável
+substituir `X-Forwarded-Proto`; por padrão, esse cabeçalho enviado pelo cliente é
+ignorado. O servidor Node escuta em `127.0.0.1` para esse arranjo.

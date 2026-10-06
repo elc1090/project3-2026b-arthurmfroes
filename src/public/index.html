@@ -4,12 +4,43 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Whiteboard T3</title>
+    <style>
+      :root { color-scheme: light; font-family: system-ui, sans-serif; background: #f1f5f9; color: #0f172a; }
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; }
+      main { width: min(24rem, calc(100% - 2rem)); padding: 2rem; border-radius: 1rem; background: white; box-shadow: 0 12px 40px #0f172a18; }
+      h1 { margin-top: 0; }
+      form { display: grid; gap: .8rem; }
+      label { display: grid; gap: .3rem; font-size: .9rem; }
+      input, button { box-sizing: border-box; width: 100%; padding: .7rem; border: 1px solid #cbd5e1; border-radius: .5rem; font: inherit; }
+      button { cursor: pointer; border: 0; background: #2563eb; color: white; font-weight: 600; }
+      button.secondary { background: transparent; color: #1d4ed8; }
+      [hidden] { display: none !important; }
+      #message { min-height: 1.5em; }
+    </style>
   </head>
   <body>
     <main>
       <h1>Whiteboard T3</h1>
-      <p>A aplicação colaborativa está pronta para receber as funções do quadro.</p>
-      <p id="status" role="status">Verificando o servidor…</p>
+      <section id="auth-panel">
+        <h2 id="form-title">Entrar</h2>
+        <form id="login-form">
+          <label>Nome de usuário<input name="username" autocomplete="username" minlength="3" maxlength="32" required></label>
+          <label>Senha<input name="password" type="password" autocomplete="current-password" minlength="8" required></label>
+          <button type="submit">Entrar</button>
+        </form>
+        <form id="register-form" hidden>
+          <label>Nome de usuário<input name="username" autocomplete="username" minlength="3" maxlength="32" required></label>
+          <label>Senha (mínimo 8 caracteres)<input name="password" type="password" autocomplete="new-password" minlength="8" required></label>
+          <button type="submit">Criar conta</button>
+        </form>
+        <button id="toggle-form" class="secondary" type="button">Criar uma conta</button>
+      </section>
+      <section id="account-panel" hidden>
+        <p>Conectado como <strong id="account-name"></strong>.</p>
+        <p>O quadro colaborativo será carregado aqui.</p>
+        <button id="logout-button" type="button">Sair</button>
+      </section>
+      <p id="message" role="status" aria-live="polite"></p>
     </main>
     <script type="module" src="/app.js"></script>
   </body>

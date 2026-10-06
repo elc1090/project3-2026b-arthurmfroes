@@ -3,6 +3,7 @@ import { mkdir, readFile, readdir } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
+import { handleAuthRequest } from './auth.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
@@ -52,7 +53,10 @@ const contentTypes = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; c
 
 export async function createAppServer(options = {}) {
   const db = options.db ?? await openDatabase();
+  const trustProxy = options.trustProxy ?? process.env.TRUST_PROXY === 'true';
   return createServer(async (request, response) => {
+    if (await handleAuthRequest(request, response, db, { trustProxy })) return;
+
     if (request.method === 'GET' && request.url === '/health') {
       response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
       response.end(JSON.stringify({ status: 'ok' }));
