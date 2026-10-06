@@ -11,6 +11,27 @@ export const CANVAS_ORIGIN = Symbol('canvas-local-action');
 
 const TOOL_TO_TYPE = { rectangle: 'rect', rect: 'rect', mux: 'mux', alu: 'alu', line: 'line', arrow: 'arrow' };
 const ERASER_RADIUS_BY_SIZE = new Map([[2, 12], [4, 22], [8, 38], [16, 65]]);
+const REMOTE_PREVIEW_TOOLS = new Set(['pen', 'highlighter', 'line', 'arrow', 'rectangle', 'rect', 'mux', 'alu']);
+const MAX_REMOTE_POINTS = 256;
+const MAX_REMOTE_COORDINATE = 10_000_000;
+
+function isSafePresenceColor(value) {
+  return typeof value === 'string' && /^#[\da-f]{3,8}$/i.test(value);
+}
+
+function normalizeRemotePoint(value) {
+  if (!value || !Number.isFinite(value.x) || !Number.isFinite(value.y)
+    || Math.abs(value.x) > MAX_REMOTE_COORDINATE || Math.abs(value.y) > MAX_REMOTE_COORDINATE) return null;
+  return { x: value.x, y: value.y };
+}
+
+function limitPreviewPoints(points) {
+  if (points.length <= MAX_REMOTE_POINTS) return points.map(point => ({ ...point }));
+  const last = points.length - 1;
+  return Array.from({ length: MAX_REMOTE_POINTS }, (_, index) => ({
+    ...points[Math.round(index * last / (MAX_REMOTE_POINTS - 1))],
+  }));
+}
 
 function shapeBounds(geometry, minWidth = 0, minHeight = 0) {
   if ([geometry.x, geometry.y, geometry.width, geometry.height].every(Number.isFinite)) {
@@ -283,6 +304,8 @@ export function bindBoardCanvas({
   getLogicalId = id => id,
   beforeLocalAction = () => {},
   afterLocalAction = () => {},
+  onLocalCursor = () => {},
+  onLocalPreview = () => {},
   boardId,
   loadImage = loadBoardImageAsset,
   loadPendingImage = createPendingBitmap,
@@ -303,6 +326,65 @@ export function bindBoardCanvas({
   let pendingImages = [];
   const imageCache = new Map();
   const pendingImageCache = new Map();
+  const remotePeers = new Map();
+  let directPeerCount = 0;
+
+  function updatePeerPresence(type, detail) {
+    if (!detail || (boardId && detail.boardId !== boardId)
+      || !Number.isSafeInteger(detail.clientId) || detail.clientId < 0) return;
+    const peer = remotePeers.get(detail.clientId) ?? { displayName: null, color: null, cursor: null, preview: null };
+    if (type === 'peer-presence') {
+      if (detail.removed) {
+        peer.displayName = null;
+        peer.color = null;
+      } else {
+        peer.displayName = typeof detail.displayName === 'string' ? detail.displayName.slice(0, 64) : null;
+        peer.color = isSafePresenceColor(detail.color) ? detail.color : null;
+      }
+    } else if (type === 'peer-cursor') {
+      peer.cursor = detail.removed ? null : normalizeRemotePoint(detail);
+    } else if (type === 'peer-stroke-preview') {
+      if (detail.removed) {
+        peer.preview = null;
+      } else if (detail.kind === 'move'
+        && typeof detail.elementId === 'string' && detail.elementId.length > 0 && detail.elementId.length <= 128
+        && Number.isFinite(detail.dx) && Math.abs(detail.dx) <= MAX_REMOTE_COORDINATE
+        && Number.isFinite(detail.dy) && Math.abs(detail.dy) <= MAX_REMOTE_COORDINATE) {
+        peer.preview = { kind: 'move', elementId: detail.elementId, dx: detail.dx, dy: detail.dy };
+      } else {
+        const points = Array.isArray(detail.points) && detail.points.length <= MAX_REMOTE_POINTS
+          ? Array.from(detail.points, normalizeRemotePoint)
+          : [];
+        if ((detail.kind === undefined || detail.kind === 'draw')
+          && REMOTE_PREVIEW_TOOLS.has(detail.tool)
+          && points.length > 0 && points.every(Boolean)) {
+          peer.preview = {
+            kind: 'draw',
+            tool: detail.tool,
+            points,
+            color: isSafePresenceColor(detail.color) ? detail.color : peer.color ?? '#1e293b',
+            strokeWidth: Number.isFinite(detail.strokeWidth) ? Math.max(1, Math.min(64, detail.strokeWidth)) : 2,
+          };
+        } else {
+          peer.preview = null;
+        }
+      }
+    }
+    if (!peer.displayName && !peer.cursor && !peer.preview) remotePeers.delete(detail.clientId);
+    else remotePeers.set(detail.clientId, peer);
+    render();
+  }
+
+  function setDirectPeerCount(value) {
+    directPeerCount = Number.isSafeInteger(value) && value > 0 ? value : 0;
+    if (directPeerCount === 0) remotePeers.clear();
+    render();
+  }
+
+  function clearLocalTransientState() {
+    onLocalCursor(null);
+    onLocalPreview(null);
+  }
 
   function toBoardPoint(event) {
     const point = screenPoint(canvas, event);
@@ -382,6 +464,86 @@ export function bindBoardCanvas({
     return boardElementsBounds(elements);
   }
 
+  function drawRemotePreview(peer, visibleById) {
+    const preview = peer.preview;
+    if (!preview) return;
+    if (preview.kind === 'move') {
+      const element = visibleById.get(preview.elementId);
+      if (!element) return;
+      const moved = { ...element, geometry: translateGeometry(element.geometry, preview.dx, preview.dy) };
+      const bounds = elementBounds(moved);
+      if (!bounds || ![bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite)
+        || Math.abs(bounds.x) > MAX_REMOTE_COORDINATE || Math.abs(bounds.y) > MAX_REMOTE_COORDINATE
+        || bounds.width > MAX_REMOTE_COORDINATE || bounds.height > MAX_REMOTE_COORDINATE) return;
+      context.save();
+      context.globalAlpha = 0.3;
+      if (moved.type === 'image') {
+        const bitmap = imageCache.get(moved.data.assetId)?.bitmap;
+        if (bitmap) {
+          const { x, y, width, height } = moved.geometry;
+          context.drawImage(bitmap, x, y, width, height);
+        } else {
+          context.fillStyle = peer.color ?? '#2563eb';
+          context.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
+        }
+      } else {
+        drawElement(context, moved);
+      }
+      context.globalAlpha = 0.9;
+      context.strokeStyle = peer.color ?? '#2563eb';
+      context.lineWidth = 2 / zoom;
+      context.setLineDash?.([6 / zoom, 4 / zoom]);
+      context.strokeRect(bounds.x, bounds.y, bounds.width, bounds.height);
+      context.restore();
+      return;
+    }
+
+    const [start] = preview.points;
+    const end = preview.points.at(-1);
+    const style = { color: preview.color, strokeWidth: preview.strokeWidth };
+    const element = createElement(preview.tool, 'remote-preview', start, end, [...preview.points], style);
+    if (!element) return;
+    context.save();
+    context.globalAlpha = 0.48;
+    drawElement(context, element);
+    context.restore();
+  }
+
+  function drawRemoteCursor(peer) {
+    if (!peer.cursor) return;
+    const color = peer.color ?? '#2563eb';
+    const name = peer.displayName || 'Membro';
+    context.save();
+    context.translate(peer.cursor.x, peer.cursor.y);
+    context.scale(1 / zoom, 1 / zoom);
+    context.fillStyle = color;
+    context.strokeStyle = '#ffffff';
+    context.lineWidth = 1.5;
+    context.beginPath();
+    context.moveTo(0, 0);
+    context.lineTo(0, 17);
+    context.lineTo(4.5, 13);
+    context.lineTo(8, 21);
+    context.lineTo(11.5, 19.5);
+    context.lineTo(8, 12);
+    context.lineTo(14, 12);
+    context.closePath();
+    context.fill();
+    context.stroke();
+    const labelX = 13;
+    const labelY = 18;
+    const labelWidth = Math.min(180, name.length * 7 + 12);
+    context.globalAlpha = 0.92;
+    context.fillStyle = color;
+    context.fillRect(labelX, labelY, labelWidth, 21);
+    context.globalAlpha = 1;
+    context.fillStyle = '#ffffff';
+    context.font = '12px sans-serif';
+    context.textBaseline = 'middle';
+    context.fillText(name.slice(0, 64), labelX + 6, labelY + 10.5, labelWidth - 12);
+    context.restore();
+  }
+
   function render() {
     if (destroyed) return;
     context.clearRect(0, 0, canvas.width, canvas.height);
@@ -424,6 +586,8 @@ export function bindBoardCanvas({
       const moved = visibleById.get(gesture.id);
       if (moved) drawSelection({ ...moved, geometry: translateGeometry(moved.geometry, gesture.dx, gesture.dy) });
     }
+    for (const peer of remotePeers.values()) drawRemotePreview(peer, visibleById);
+    for (const peer of remotePeers.values()) drawRemoteCursor(peer);
     drawEraserCursor();
     context.restore();
   }
@@ -483,6 +647,19 @@ export function bindBoardCanvas({
     input.addEventListener('blur', commit);
   }
 
+  function publishDrawPreview(active) {
+    const points = active.tool === 'pen' || active.tool === 'highlighter'
+      ? limitPreviewPoints(active.points)
+      : [active.start, active.end];
+    onLocalPreview({
+      kind: 'draw',
+      tool: active.tool,
+      points,
+      color: active.style.color,
+      strokeWidth: active.style.strokeWidth,
+    });
+  }
+
   function onPointerDown(event) {
     const screen = screenPoint(canvas, event);
     const point = { x: (screen.x - panX) / zoom, y: (screen.y - panY) / zoom };
@@ -509,11 +686,14 @@ export function bindBoardCanvas({
         preview: createElement(tool, 'preview', point, point, [{ ...point }], style),
       };
     }
+    onLocalCursor(point);
+    if (gesture?.kind === 'draw') publishDrawPreview(gesture);
     if (gesture) canvas.setPointerCapture?.(event.pointerId);
     render();
   }
 
   function onPointerMove(event) {
+    onLocalCursor(toBoardPoint(event));
     if (!gesture) {
       if (getTool() === 'eraser') {
         eraserCursor = toBoardPoint(event);
@@ -526,6 +706,7 @@ export function bindBoardCanvas({
       panX += screen.x - gesture.screen.x;
       panY += screen.y - gesture.screen.y;
       gesture.screen = screen;
+      onLocalCursor(toBoardPoint(event));
       render();
       return;
     }
@@ -541,6 +722,7 @@ export function bindBoardCanvas({
     } else if (gesture.kind === 'move') {
       gesture.dx = point.x - gesture.start.x;
       gesture.dy = point.y - gesture.start.y;
+      onLocalPreview({ kind: 'move', elementId: gesture.id, dx: gesture.dx, dy: gesture.dy });
     } else if (gesture.kind === 'draw') {
       gesture.end = point;
       if (gesture.tool === 'pen' || gesture.tool === 'highlighter') {
@@ -548,6 +730,7 @@ export function bindBoardCanvas({
         for (const sample of coalesced) gesture.points.push(toBoardPoint(sample));
       }
       gesture.preview = createElement(gesture.tool, 'preview', gesture.start, gesture.end, [...gesture.points], gesture.style);
+      publishDrawPreview(gesture);
     }
     render();
   }
@@ -557,6 +740,8 @@ export function bindBoardCanvas({
     const active = gesture;
     gesture = null;
     canvas.releasePointerCapture?.(event.pointerId);
+    clearLocalTransientState();
+    render();
     if (active.kind === 'pan') return;
     if (active.kind === 'delete') {
       deleteElement(active.id);
@@ -605,7 +790,12 @@ export function bindBoardCanvas({
   function onPointerCancel(event) {
     if (gesture) canvas.releasePointerCapture?.(event.pointerId);
     gesture = null;
+    clearLocalTransientState();
     render();
+  }
+
+  function onPointerLeave() {
+    clearLocalTransientState();
   }
 
   function applyZoom(factor) {
@@ -660,6 +850,7 @@ export function bindBoardCanvas({
   canvas.addEventListener('pointermove', onPointerMove);
   canvas.addEventListener('pointerup', onPointerUp);
   canvas.addEventListener('pointercancel', onPointerCancel);
+  canvas.addEventListener('pointerleave', onPointerLeave);
   canvas.addEventListener('wheel', onWheel, { passive: false });
   doc.on('afterTransaction', onTransaction);
   render();
@@ -678,6 +869,12 @@ export function bindBoardCanvas({
   return {
     render,
     setPendingImages: syncPendingImages,
+    updatePeerPresence,
+    setDirectPeerCount,
+    clearRemotePresence() {
+      remotePeers.clear();
+      render();
+    },
     clientToBoardPoint(clientX, clientY) {
       const point = screenPoint(canvas, { clientX, clientY });
       return { x: (point.x - panX) / zoom, y: (point.y - panY) / zoom };
@@ -696,8 +893,11 @@ export function bindBoardCanvas({
       canvas.removeEventListener('pointermove', onPointerMove);
       canvas.removeEventListener('pointerup', onPointerUp);
       canvas.removeEventListener('pointercancel', onPointerCancel);
+      canvas.removeEventListener('pointerleave', onPointerLeave);
       canvas.removeEventListener('wheel', onWheel);
       doc.off('afterTransaction', onTransaction);
+      clearLocalTransientState();
+      remotePeers.clear();
       for (const entry of imageCache.values()) entry.bitmap?.close?.();
       imageCache.clear();
       for (const entry of pendingImageCache.values()) entry.bitmap?.close?.();

@@ -58,7 +58,7 @@ test('cursor and preview are throttled while clear and disconnect cancel pending
 test('presence payloads reject invalid or oversized points', () => {
   const presence = createBoardPresence('board-1');
   assert.throws(() => presence.setLocalCursor({ x: Number.NaN, y: 0 }), /coordinates/);
-  assert.throws(() => presence.setStrokePreview({ tool: 'pen', points: Array(257).fill({ x: 0, y: 0 }) }), /at most 256/);
+  assert.throws(() => presence.setStrokePreview({ tool: 'pen', points: Array(257).fill({ x: 0, y: 0 }) }), /between 1 and 256/);
   assert.throws(() => presence.setLocalPresence({ displayName: 'x'.repeat(65), color: '#000' }), /displayName/);
   presence.destroy();
 });

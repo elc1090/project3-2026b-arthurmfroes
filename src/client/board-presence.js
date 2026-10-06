@@ -131,17 +131,39 @@ export function createBoardPresence(boardId, onEvent = () => {}, {
       publishLocalState();
       return;
     }
-    if (!value || typeof value !== 'object'
-      || typeof value.tool !== 'string'
-      || value.tool.length > MAX_PREVIEW_TOOL_LENGTH
-      || !Array.isArray(value.points)
-      || value.points.length > MAX_PREVIEW_POINTS) {
-      throw new TypeError(`A stroke preview needs a tool and at most ${MAX_PREVIEW_POINTS} points`);
+    if (!value || typeof value !== 'object') {
+      throw new TypeError('A stroke preview must be an object');
     }
-    localPreview = {
-      tool: value.tool,
-      points: value.points.map((point) => normalizePoint(point, 'preview point')),
-    };
+    if (value.kind === 'move') {
+      if (typeof value.elementId !== 'string' || value.elementId.length === 0 || value.elementId.length > 128
+        || !Number.isFinite(value.dx) || Math.abs(value.dx) > 10_000_000
+        || !Number.isFinite(value.dy) || Math.abs(value.dy) > 10_000_000) {
+        throw new TypeError('A move preview requires an element ID and finite bounded deltas');
+      }
+      localPreview = { kind: 'move', tool: 'move', elementId: value.elementId, dx: value.dx, dy: value.dy };
+    } else {
+      if ((value.kind !== undefined && value.kind !== 'draw')
+        || typeof value.tool !== 'string'
+        || value.tool.length > MAX_PREVIEW_TOOL_LENGTH
+        || !Array.isArray(value.points)
+        || value.points.length === 0
+        || value.points.length > MAX_PREVIEW_POINTS) {
+        throw new TypeError(`A draw preview needs a tool and between 1 and ${MAX_PREVIEW_POINTS} points`);
+      }
+      const color = value.color ?? presenceIdentity?.color ?? '#1e293b';
+      const strokeWidth = value.strokeWidth ?? 2;
+      if (typeof color !== 'string' || color.length > MAX_COLOR_LENGTH
+        || !Number.isFinite(strokeWidth) || strokeWidth < 1 || strokeWidth > 64) {
+        throw new TypeError('A draw preview color and stroke width must be bounded');
+      }
+      localPreview = {
+        kind: 'draw',
+        tool: value.tool,
+        points: value.points.map((point) => normalizePoint(point, 'preview point')),
+        color,
+        strokeWidth,
+      };
+    }
     schedulePreview();
   }
 

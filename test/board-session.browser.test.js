@@ -16,13 +16,17 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 const fixtureHtml = `<!doctype html>
 <html><head><meta charset="utf-8"><title>Board session test</title></head>
 <body>
-  <div id="toolbar"><button id="rectangle-tool" type="button" data-board-tool="rectangle">Rectangle</button></div>
+  <div id="toolbar">
+    <button id="select-tool" type="button" data-board-tool="select">Select</button>
+    <button id="rectangle-tool" type="button" data-board-tool="rectangle">Rectangle</button>
+  </div>
   <canvas id="board-canvas" width="320" height="240" style="width:320px;height:240px"></canvas>
   <script type="module">
     import { mountBoardCanvas, openBoardSession } from '/board.bundle.js';
     const boardId = new URL(location.href).searchParams.get('boardId');
     const initialServerPaused = new URL(location.href).searchParams.get('pauseServerSync') === 'true';
     const initialPeerPaused = new URL(location.href).searchParams.get('pausePeerSync') === 'true';
+    const displayName = new URL(location.href).searchParams.get('displayName') || '';
     window.__durableAcks = [];
     window.__syncEvents = [];
     window.__presenceEvents = [];
@@ -39,6 +43,8 @@ const fixtureHtml = `<!doctype html>
       }
       window.__session.on('error', error => window.__sessionErrors.push(String(error)));
       window.__canvas = mountBoardCanvas({
+        boardSession: window.__session,
+        displayName,
         doc: window.__session.doc,
         canvas: document.querySelector('#board-canvas'),
         toolbar: document.querySelector('#toolbar'),
@@ -65,6 +71,7 @@ async function openTestPage(context, baseUrl, boardId, {
   pauseServerSync = false,
   pausePeerSync = false,
   blockSignaling = false,
+  displayName = '',
 } = {}) {
   await context.route('**/__board-session-test*', (route) => route.fulfill({
     status: 200,
@@ -74,6 +81,7 @@ async function openTestPage(context, baseUrl, boardId, {
   const page = await context.newPage();
   if (blockSignaling) await page.routeWebSocket(/\/api\/signaling$/, () => {});
   const query = new URLSearchParams({ boardId });
+  if (displayName) query.set('displayName', displayName);
   if (pauseServerSync) query.set('pauseServerSync', 'true');
   if (pausePeerSync) query.set('pausePeerSync', 'true');
   await page.goto(`${baseUrl}/__board-session-test?${query}`);
@@ -143,8 +151,8 @@ test('two isolated Chrome profiles exchange through WebRTC with board WS paused,
       bobContext.addCookies([{ name: 'whiteboard_session', value: bob.token, url: baseUrl }]),
     ]);
 
-    let alicePage = await openTestPage(aliceContext, baseUrl, boardId);
-    const bobPage = await openTestPage(bobContext, baseUrl, boardId);
+    let alicePage = await openTestPage(aliceContext, baseUrl, boardId, { displayName: 'Alice' });
+    const bobPage = await openTestPage(bobContext, baseUrl, boardId, { displayName: 'Bob' });
     await alicePage.waitForFunction(() => window.__session.serverStatus === 'connected', null, { timeout: 5_000 });
     await bobPage.waitForFunction(() => window.__session.serverStatus === 'connected', null, { timeout: 5_000 });
 
@@ -168,19 +176,25 @@ test('two isolated Chrome profiles exchange through WebRTC with board WS paused,
     assert.deepEqual((await alicePage.evaluate(() => window.__session.p2pStatus)).bcPeers, []);
     assert.deepEqual((await bobPage.evaluate(() => window.__session.p2pStatus)).bcPeers, []);
 
-    await alicePage.evaluate(() => {
-      window.__session.setLocalPresence({ displayName: 'Alice', color: '#c30' });
-      window.__session.setLocalCursor({ x: 123.5, y: 78 });
-      window.__session.setStrokePreview({ tool: 'pen', points: [{ x: 120, y: 75 }, { x: 123.5, y: 78 }] });
-    });
-    await bobPage.waitForFunction(() => window.__presenceEvents.some(({ type, detail }) =>
-      type === 'peer-cursor' && detail.x === 123.5 && detail.y === 78), null, { timeout: 10_000 });
+    assert.match(await alicePage.locator('[data-board-presence-status]').textContent(), /P2P/);
     assert.equal(await bobPage.evaluate(() => window.__presenceEvents.some(({ type, detail }) =>
-      type === 'peer-presence' && detail.displayName === 'Alice' && detail.color === '#c30')), true);
-    assert.equal(await bobPage.evaluate(() => window.__presenceEvents.some(({ type, detail }) =>
-      type === 'peer-stroke-preview' && detail.tool === 'pen' && detail.points.length === 2)), true);
+      type === 'peer-presence' && detail.displayName === 'Alice')), true);
 
-    const aliceSameProfilePage = await openTestPage(aliceContext, baseUrl, boardId, { blockSignaling: true });
+    const aliceCanvasBox = await alicePage.locator('#board-canvas').boundingBox();
+    await alicePage.mouse.move(aliceCanvasBox.x + 123, aliceCanvasBox.y + 78);
+    try {
+      await bobPage.waitForFunction(() => window.__presenceEvents.some(({ type }) => type === 'peer-cursor'), null, { timeout: 5_000 });
+    } catch (error) {
+      const state = await Promise.all([alicePage, bobPage].map(page => page.evaluate(() => ({
+        p2pStatus: window.__session.p2pStatus,
+        p2pPeerCount: window.__session.p2pPeerCount,
+        presenceStatus: document.querySelector('[data-board-presence-status]')?.textContent,
+        events: window.__presenceEvents,
+        errors: window.__sessionErrors,
+      }))));
+      throw new Error(`Canvas cursor did not reach Bob: ${JSON.stringify(state)}`, { cause: error });
+    }
+    const aliceSameProfilePage = await openTestPage(aliceContext, baseUrl, boardId, { blockSignaling: true, displayName: 'Alice tab' });
     await aliceSameProfilePage.waitForFunction(() => window.__session.serverStatus === 'connected', null, { timeout: 5_000 });
     await aliceSameProfilePage.waitForTimeout(300);
     assert.deepEqual((await aliceSameProfilePage.evaluate(() => window.__session.p2pStatus)).bcPeers, [],
@@ -193,14 +207,8 @@ test('two isolated Chrome profiles exchange through WebRTC with board WS paused,
       'presence and previews must not create durable Yjs updates');
     await aliceSameProfilePage.evaluate(() => window.__session.destroy());
     await aliceSameProfilePage.close();
-    await alicePage.evaluate(() => {
-      window.__session.setLocalCursor(null);
-      window.__session.setStrokePreview(null);
-      window.__session.setLocalPresence(null);
-    });
-    await bobPage.waitForFunction(() => window.__presenceEvents.some(({ type, detail }) => type === 'peer-cursor' && detail.removed)
-      && window.__presenceEvents.some(({ type, detail }) => type === 'peer-stroke-preview' && detail.removed)
-      && window.__presenceEvents.some(({ type, detail }) => type === 'peer-presence' && detail.removed), null, { timeout: 5_000 });
+    await alicePage.mouse.move(aliceCanvasBox.x - 5, aliceCanvasBox.y - 5);
+    await bobPage.waitForFunction(() => window.__presenceEvents.some(({ type, detail }) => type === 'peer-cursor' && detail.removed), null, { timeout: 5_000 });
 
     await Promise.all([
       alicePage.evaluate(() => window.__session.pauseServerSync()),
@@ -211,7 +219,29 @@ test('two isolated Chrome profiles exchange through WebRTC with board WS paused,
       bobPage.waitForFunction(() => window.__session.serverStatus === 'paused'),
     ]);
 
-    await drawRectangle(alicePage, 30, 40);
+    await alicePage.locator('#rectangle-tool').click();
+    await alicePage.mouse.move(aliceCanvasBox.x + 30, aliceCanvasBox.y + 40);
+    await alicePage.mouse.down();
+    await alicePage.mouse.move(aliceCanvasBox.x + 100, aliceCanvasBox.y + 90);
+    await bobPage.waitForFunction(() => window.__presenceEvents.some(({ type, detail }) =>
+      type === 'peer-stroke-preview' && detail.kind === 'draw' && detail.points.at(-1).x >= 99 && detail.points.at(-1).y >= 89), null, { timeout: 5_000 });
+    const previewPixels = await bobPage.evaluate(() => {
+      const pixels = document.querySelector('#board-canvas').getContext('2d').getImageData(60, 38, 12, 5).data;
+      return pixels.some((channel, index) => index % 4 === 3 && channel > 0);
+    });
+    assert.equal(previewPixels, true, 'Bob Canvas renders the remote rectangle preview before pointerup');
+    const cursorPixels = await bobPage.evaluate(() => {
+      const pixels = document.querySelector('#board-canvas').getContext('2d').getImageData(100, 90, 24, 32).data;
+      return pixels.some((channel, index) => index % 4 === 3 && channel > 0);
+    });
+    assert.equal(cursorPixels, true, 'Bob Canvas renders Alice’s remote cursor and name');
+    assert.equal(await alicePage.evaluate(() => window.__session.doc.getMap('elements').size), 0,
+      'an in-progress Canvas gesture has not changed the local Y.Doc');
+    assert.equal(await bobPage.evaluate(() => window.__session.doc.getMap('elements').size), 0,
+      'an in-progress preview is not a remote Yjs edit');
+    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM board_updates WHERE board_id = ?').get(boardId).count, 0,
+      'an in-progress Canvas gesture creates no durable server row');
+    await alicePage.mouse.up();
     await waitForElementCount(alicePage, 1);
     await bobPage.waitForFunction(() => window.__session.doc.getMap('elements').size === 1, null, { timeout: 15_000 });
     await Promise.all([
@@ -237,9 +267,32 @@ test('two isolated Chrome profiles exchange through WebRTC with board WS paused,
     assert.equal(await alicePage.evaluate(() => window.__durableAcks.length), 0,
       'peer receipt must not be reported as a durable server acknowledgement');
 
-    await alicePage.evaluate(() => window.__session.setLocalCursor({ x: 210, y: 160 }));
+    await alicePage.locator('[data-board-tool="select"]').click();
+    await alicePage.mouse.move(aliceCanvasBox.x + 50, aliceCanvasBox.y + 60);
+    await alicePage.mouse.down();
+    await alicePage.mouse.move(aliceCanvasBox.x + 90, aliceCanvasBox.y + 90);
+    await bobPage.waitForFunction(() => window.__presenceEvents.some(({ type, detail }) =>
+      type === 'peer-stroke-preview' && detail.kind === 'move'), null, { timeout: 5_000 });
+    assert.equal(await bobPage.evaluate(() => window.__session.doc.getMap('elements').size), 1,
+      'a move preview is a ghost and does not mutate the peer document before pointerup');
+    const movedGhostPixels = await bobPage.evaluate(() => {
+      const pixels = document.querySelector('#board-canvas').getContext('2d').getImageData(108, 82, 12, 8).data;
+      return pixels.some((channel, index) => index % 4 === 3 && channel > 0);
+    });
+    assert.equal(movedGhostPixels, true, 'Bob Canvas renders the translated element ghost');
+    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM board_updates WHERE board_id = ?').get(boardId).count, 0);
+    await alicePage.mouse.up();
+    await bobPage.waitForFunction(() => window.__session.doc.getMap('elements').get(window.__session.doc.getArray('order').get(0)).get('geometry').x === 70,
+      null, { timeout: 5_000 });
+
+    await alicePage.mouse.move(aliceCanvasBox.x + 210, aliceCanvasBox.y + 160);
     await bobPage.waitForFunction(() => window.__presenceEvents.some(({ type, detail }) =>
       type === 'peer-cursor' && detail.x === 210 && detail.y === 160), null, { timeout: 5_000 });
+    const idleCursorPixels = await bobPage.evaluate(() => {
+      const pixels = document.querySelector('#board-canvas').getContext('2d').getImageData(205, 155, 25, 35).data;
+      return pixels.some((channel, index) => index % 4 === 3 && channel > 0);
+    });
+    assert.equal(idleCursorPixels, true, 'the peer Canvas shows the cursor after the gesture ends');
     await Promise.all([
       alicePage.evaluate(() => window.__session.pausePeerSync()),
       bobPage.evaluate(() => window.__session.pausePeerSync()),
@@ -248,6 +301,12 @@ test('two isolated Chrome profiles exchange through WebRTC with board WS paused,
       alicePage.waitForFunction(() => window.__session.p2pPeerCount === 0, null, { timeout: 5_000 }),
       bobPage.waitForFunction(() => window.__session.p2pPeerCount === 0, null, { timeout: 5_000 }),
     ]);
+    await bobPage.waitForFunction(() => document.querySelector('[data-board-presence-status]').textContent === 'Sem conexões diretas P2P');
+    const clearedCursorPixels = await bobPage.evaluate(() => {
+      const pixels = document.querySelector('#board-canvas').getContext('2d').getImageData(205, 155, 25, 35).data;
+      return pixels.some((channel, index) => index % 4 === 3 && channel > 0);
+    });
+    assert.equal(clearedCursorPixels, false, 'pausing P2P removes the remote cursor from the Canvas');
     await bobPage.waitForFunction(() => window.__presenceEvents.some(({ type, detail }) =>
       type === 'peer-cursor' && detail.removed), null, { timeout: 5_000 });
     const presenceEventCountAfterDisconnect = await bobPage.evaluate(() => window.__presenceEvents.length);

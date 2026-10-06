@@ -38,7 +38,26 @@ export function createBoardDocument(elements = []) {
  * Mount the minimal tools around a board document. `doc` is borrowed when
  * supplied by IndexedDB or a sync provider, and remains owned by that caller.
  */
-export function mountBoardCanvas({ boardId, canvas, toolbar, doc: suppliedDoc, elements = [], onSaveBoardImage = () => {} }) {
+const PRESENCE_COLORS = ['#2563eb', '#c026d3', '#ea580c', '#0891b2', '#16a34a', '#7c3aed'];
+
+function presenceColorFor(displayName, requestedColor) {
+  if (typeof requestedColor === 'string' && /^#[\da-f]{3,8}$/i.test(requestedColor)) return requestedColor;
+  const value = String(displayName ?? '');
+  const hash = [...value].reduce((sum, character) => ((sum * 31) + character.codePointAt(0)) >>> 0, 7);
+  return PRESENCE_COLORS[hash % PRESENCE_COLORS.length];
+}
+
+export function mountBoardCanvas({
+  boardId,
+  canvas,
+  toolbar,
+  doc: suppliedDoc,
+  elements = [],
+  onSaveBoardImage = () => {},
+  boardSession,
+  displayName,
+  presenceColor,
+}) {
   const ownsDoc = !suppliedDoc;
   const doc = suppliedDoc ?? createBoardDocument(elements);
   let tool = 'select';
@@ -55,6 +74,8 @@ export function mountBoardCanvas({ boardId, canvas, toolbar, doc: suppliedDoc, e
     localOrigin: CANVAS_ORIGIN,
     onChange: refreshHistoryButtons,
   });
+  let directPeerCount = 0;
+  let updateConnectionStatus = () => {};
   const undoListeners = undoButtons.map(button => {
     const listener = () => history.undo();
     button.addEventListener('click', listener);
@@ -114,9 +135,62 @@ export function mountBoardCanvas({ boardId, canvas, toolbar, doc: suppliedDoc, e
     getLogicalId: id => history.logicalIdFor(id),
     beforeLocalAction: action => history.beginLocalAction(action),
     afterLocalAction: () => history.stopCapturing(),
+    onLocalCursor: point => {
+      const peerCount = Number.isSafeInteger(boardSession?.p2pPeerCount) ? boardSession.p2pPeerCount : directPeerCount;
+      if (point === null || peerCount > 0) boardSession?.setLocalCursor(point);
+      else boardSession?.setLocalCursor(null);
+      updateConnectionStatus(boardSession?.p2pStatus);
+    },
+    onLocalPreview: preview => {
+      const peerCount = Number.isSafeInteger(boardSession?.p2pPeerCount) ? boardSession.p2pPeerCount : directPeerCount;
+      if (preview === null || peerCount > 0) boardSession?.setStrokePreview(preview);
+      else boardSession?.setStrokePreview(null);
+      updateConnectionStatus(boardSession?.p2pStatus);
+    },
     deleteElement: id => history.deleteElement(id),
     eraseAt: options => history.eraseAt(options),
   });
+  const presenceListeners = [];
+  const presenceStatus = boardSession && canvas.ownerDocument?.createElement
+    ? canvas.ownerDocument.createElement('div')
+    : null;
+  if (presenceStatus) {
+    presenceStatus.dataset.boardPresenceStatus = '';
+    presenceStatus.setAttribute('role', 'status');
+    presenceStatus.setAttribute('aria-live', 'polite');
+    presenceStatus.style.cssText = 'flex-basis:100%;margin:0;color:#475569;font-size:.85rem';
+    presenceStatus.textContent = 'Conectando pares P2P…';
+    toolbar.append(presenceStatus);
+  }
+  if (boardSession) {
+    const name = typeof displayName === 'string' ? displayName.trim().slice(0, 64) : '';
+    const colorForPresence = presenceColorFor(name, presenceColor);
+    if (name) boardSession.setLocalPresence({ displayName: name, color: colorForPresence });
+    for (const type of ['peer-presence', 'peer-cursor', 'peer-stroke-preview']) {
+      presenceListeners.push(boardSession.on(type, detail => {
+        binding.updatePeerPresence(type, detail);
+        updateConnectionStatus(boardSession.p2pStatus);
+      }));
+    }
+    updateConnectionStatus = status => {
+      const liveCount = Number.isSafeInteger(boardSession.p2pPeerCount) ? boardSession.p2pPeerCount : status?.peerCount;
+      const count = Number.isSafeInteger(liveCount) && liveCount > 0 ? liveCount : 0;
+      directPeerCount = count;
+      binding.setDirectPeerCount(count);
+      if (count === 0) {
+        boardSession.setLocalCursor(null);
+        boardSession.setStrokePreview(null);
+      }
+      if (!presenceStatus) return;
+      presenceStatus.textContent = count === 0
+        ? 'Sem conexões diretas P2P'
+        : `${count} ${count === 1 ? 'conexão direta' : 'conexões diretas'} P2P`;
+    };
+    presenceListeners.push(boardSession.on('p2p-status', updateConnectionStatus));
+    presenceListeners.push(boardSession.on('membership-revoked', () => binding.clearRemotePresence()));
+    presenceListeners.push(boardSession.on('session-expired', () => binding.clearRemotePresence()));
+    updateConnectionStatus(boardSession.p2pStatus);
+  }
   const imageControls = [imagePicker, imageButton, templateButton].filter(Boolean);
   for (const control of imageControls) control.disabled = !boardId;
 
@@ -345,6 +419,9 @@ export function mountBoardCanvas({ boardId, canvas, toolbar, doc: suppliedDoc, e
     renderSnapshot: () => renderBoardSnapshot(doc, boardId),
     destroy() {
       binding.destroy();
+      for (const unsubscribe of presenceListeners) unsubscribe?.();
+      boardSession?.setLocalPresence?.(null);
+      presenceStatus?.remove();
       for (const [button, listener] of buttonListeners) button.removeEventListener('click', listener);
       for (const [button, listener] of colorListeners) button.removeEventListener('click', listener);
       for (const [button, listener] of sizeListeners) button.removeEventListener('click', listener);

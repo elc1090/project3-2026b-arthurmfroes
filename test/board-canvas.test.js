@@ -12,6 +12,7 @@ class FakeCanvas {
   context = {
     clearCount: 0,
     strokeRects: [],
+    textLabels: [],
     save() {},
     restore() {},
     translate() {},
@@ -23,7 +24,7 @@ class FakeCanvas {
     stroke() {},
     fill() {},
     arc() {},
-    fillText() {},
+    fillText(text) { this.textLabels.push(text); },
     setLineDash() {},
     clearRect() { this.clearCount += 1; },
     strokeRect(...geometry) { this.strokeRects.push(geometry); },
@@ -252,6 +253,90 @@ test('mount uses a provider-owned Y.Doc, renders its remote rect, and leaves its
   assert.equal(canvas.context.clearCount, rendersAfterDestroy);
   doc.destroy();
   remoteDoc.destroy();
+});
+
+test('Canvas publishes board-space cursor and ephemeral previews only until each gesture completes', () => {
+  const doc = new Y.Doc();
+  const canvas = new FakeCanvas();
+  const cursors = [];
+  const previews = [];
+  let tool = 'rectangle';
+  let nextId = 0;
+  const binding = bindBoardCanvas({
+    doc,
+    canvas,
+    getTool: () => tool,
+    idFactory: () => `presence-${++nextId}`,
+    onLocalCursor: value => cursors.push(value),
+    onLocalPreview: value => previews.push(value),
+  });
+
+  canvas.dispatch('pointerdown', { clientX: 15, clientY: 20 });
+  canvas.dispatch('pointermove', { clientX: 55, clientY: 65 });
+  assert.deepEqual(readBoardElements(doc), [], 'the draw preview has not entered the Y.Doc');
+  assert.deepEqual(cursors.at(-1), { x: 55, y: 65 });
+  assert.deepEqual(previews.at(-1), {
+    kind: 'draw', tool: 'rectangle', points: [{ x: 15, y: 20 }, { x: 55, y: 65 }], color: '#1e293b', strokeWidth: 2,
+  });
+  canvas.dispatch('pointerup', { clientX: 55, clientY: 65 });
+  assert.equal(readBoardElements(doc).length, 1);
+  assert.equal(cursors.at(-1), null);
+  assert.equal(previews.at(-1), null);
+
+  tool = 'select';
+  canvas.dispatch('pointerdown', { clientX: 25, clientY: 30 });
+  canvas.dispatch('pointermove', { clientX: 40, clientY: 42 });
+  assert.deepEqual(previews.at(-1), { kind: 'move', elementId: 'presence-1', dx: 15, dy: 12 });
+  assert.deepEqual(readBoardElements(doc)[0].geometry, { x: 15, y: 20, width: 40, height: 45 },
+    'the move ghost does not change geometry before pointerup');
+  canvas.dispatch('pointerup', { clientX: 40, clientY: 42 });
+  assert.deepEqual(readBoardElements(doc)[0].geometry, { x: 30, y: 32, width: 40, height: 45 });
+  assert.equal(previews.at(-1), null);
+
+  canvas.dispatch('pointermove', { clientX: 200, clientY: 160 });
+  canvas.dispatch('pointerleave', {});
+  assert.equal(cursors.at(-1), null, 'leaving the Canvas immediately clears the local cursor');
+  binding.destroy();
+  doc.destroy();
+});
+
+test('Canvas validates Awareness data before drawing cursors and moved-element ghosts', () => {
+  const doc = new Y.Doc();
+  const canvas = new FakeCanvas();
+  const rendered = [];
+  addElement(doc, {
+    id: 'remote-element', type: 'rect', geometry: { x: 10, y: 20, width: 20, height: 15 },
+  });
+  const binding = bindBoardCanvas({
+    doc,
+    canvas,
+    boardId: 'board-a',
+    drawElement: (_context, element) => rendered.push(element),
+  });
+  binding.updatePeerPresence('peer-presence', {
+    boardId: 'board-a', clientId: 42, displayName: 'Grace', color: '#0a7', removed: false,
+  });
+  binding.updatePeerPresence('peer-cursor', { boardId: 'board-a', clientId: 42, x: 50, y: 60, removed: false });
+  binding.updatePeerPresence('peer-stroke-preview', {
+    boardId: 'board-a', clientId: 42, kind: 'move', elementId: 'remote-element', dx: 30, dy: 40,
+  });
+  assert.deepEqual(canvas.context.strokeRects.at(-1), [40, 60, 20, 15], 'the ghost uses the existing element bounds plus board-space delta');
+  assert.equal(canvas.context.textLabels.includes('Grace'), true);
+  assert.equal(readBoardElements(doc)[0].geometry.x, 10, 'drawing the ghost does not mutate the shared model');
+
+  binding.updatePeerPresence('peer-cursor', { boardId: 'board-a', clientId: 43, x: Number.NaN, y: 0, removed: false });
+  binding.updatePeerPresence('peer-stroke-preview', {
+    boardId: 'board-a', clientId: 43, tool: 'constructor', points: [{ x: 1, y: 1 }], removed: false,
+  });
+  assert.equal(canvas.context.textLabels.every(label => label === 'Grace'), true,
+    'invalid peer coordinates do not produce a cursor or untrusted label');
+  assert.equal(rendered.some(element => element.id === 'remote-preview'), false, 'unknown preview tools are ignored');
+  binding.setDirectPeerCount(0);
+  const labelsAfterDisconnect = canvas.context.textLabels.length;
+  binding.render();
+  assert.equal(canvas.context.textLabels.length, labelsAfterDisconnect, 'disconnect clears remote Canvas presence');
+  binding.destroy();
+  doc.destroy();
 });
 
 test('authorized image assets render at their model geometry, reuse one decode, and close on removal', async () => {
