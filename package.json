@@ -1,0 +1,17 @@
+{
+  "name": "collaborative-whiteboard-t3",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "start": "node src/server/main.js",
+    "smoke": "node --test test/foundation.smoke.test.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "12.2.0",
+    "yjs": "13.6.27"
+  }
+}

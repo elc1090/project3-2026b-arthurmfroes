@@ -5,3 +5,8 @@ whiteboard/current_board.png
 whiteboard/ai_feedback.json
 whiteboard/snapshots/*.png
 !whiteboard/snapshots/.gitkeep
+node_modules/
+data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal

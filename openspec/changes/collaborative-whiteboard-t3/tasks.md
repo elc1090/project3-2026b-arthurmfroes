@@ -22,7 +22,7 @@ When multiple implementers share this uncommitted working tree, assign exclusive
 
 ## 1. Project foundation
 
-- [ ] 1.1 Set up the single Node.js application, locked dependencies, SQLite migrations, and static UI entry point; verify a clean install and focused smoke checks from a fresh checkout.
+- [x] 1.1 Set up the single Node.js application, locked dependencies, SQLite migrations, and static UI entry point; verify a clean install and focused smoke checks from a fresh checkout.
 - [x] 1.2 Record the copied whiteboard's tool, image, gallery, sidebar, export, AI-save, presence, and undo/redo behaviors in a feature-parity checklist; verify each checklist entry against the copied UI and source.
 
 ## 2. Accounts, boards, and membership
