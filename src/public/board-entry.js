@@ -1,6 +1,7 @@
 import * as Y from 'yjs';
 import { addElement } from '../shared/board-model.js';
-import { bindBoardCanvas } from './board-canvas.js';
+import { bindBoardCanvas, CANVAS_ORIGIN } from './board-canvas.js';
+import { LocalBoardHistory } from './board-undo.js';
 
 /**
  * Temporary snapshot adapter for the current UI. A sync provider should instead
@@ -30,6 +31,27 @@ export function mountBoardCanvas({ canvas, toolbar, doc: suppliedDoc, elements =
   const ownsDoc = !suppliedDoc;
   const doc = suppliedDoc ?? createBoardDocument(elements);
   let tool = 'select';
+  const undoButtons = [...toolbar.querySelectorAll('[data-board-undo]')];
+  const redoButtons = [...toolbar.querySelectorAll('[data-board-redo]')];
+  let history;
+  const refreshHistoryButtons = ({ canUndo, canRedo }) => {
+    for (const button of undoButtons) button.disabled = !canUndo;
+    for (const button of redoButtons) button.disabled = !canRedo;
+  };
+  history = new LocalBoardHistory(doc, {
+    localOrigin: CANVAS_ORIGIN,
+    onChange: refreshHistoryButtons,
+  });
+  const undoListeners = undoButtons.map(button => {
+    const listener = () => history.undo();
+    button.addEventListener('click', listener);
+    return [button, listener];
+  });
+  const redoListeners = redoButtons.map(button => {
+    const listener = () => history.redo();
+    button.addEventListener('click', listener);
+    return [button, listener];
+  });
   const buttons = [...toolbar.querySelectorAll('[data-board-tool]')];
   const buttonListeners = [];
   for (const button of buttons) {
@@ -42,12 +64,22 @@ export function mountBoardCanvas({ canvas, toolbar, doc: suppliedDoc, elements =
     button.addEventListener('click', onClick);
     buttonListeners.push([button, onClick]);
   }
-  const binding = bindBoardCanvas({ doc, canvas, getTool: () => tool });
+  const binding = bindBoardCanvas({
+    doc,
+    canvas,
+    getTool: () => tool,
+    afterLocalAction: () => history.stopCapturing(),
+  });
+  refreshHistoryButtons({ canUndo: history.canUndo, canRedo: history.canRedo });
   return {
     doc,
+    history,
     destroy() {
       binding.destroy();
       for (const [button, listener] of buttonListeners) button.removeEventListener('click', listener);
+      for (const [button, listener] of undoListeners) button.removeEventListener('click', listener);
+      for (const [button, listener] of redoListeners) button.removeEventListener('click', listener);
+      history.destroy();
       if (ownsDoc) doc.destroy();
     },
   };

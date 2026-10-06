@@ -46,6 +46,7 @@ export function bindBoardCanvas({
   getStyle = () => ({ color: '#0f172a', strokeWidth: 2 }),
   idFactory = createElementId,
   drawElement = defaultDraw,
+  afterLocalAction = () => {},
 }) {
   if (!doc || !canvas?.getContext || !canvas?.addEventListener) {
     throw new TypeError('A Y.Doc and an event-capable Canvas are required');
@@ -60,8 +61,8 @@ export function bindBoardCanvas({
     for (const element of readBoardElements(doc)) drawElement(context, element);
   }
 
-  function onTransaction() {
-    render();
+  function onTransaction(transaction) {
+    if (transaction.changed.size > 0) render();
   }
 
   function onPointerDown(event) {
@@ -92,6 +93,7 @@ export function bindBoardCanvas({
       doc.transact(() => addElement(doc, {
         id: idFactory(), type: 'rect', geometry, style,
       }), CANVAS_ORIGIN);
+      afterLocalAction();
       return;
     }
 
@@ -105,6 +107,7 @@ export function bindBoardCanvas({
       x: element.geometry.x + dx,
       y: element.geometry.y + dy,
     }), CANVAS_ORIGIN);
+    afterLocalAction();
   }
 
   canvas.addEventListener('pointerdown', onPointerDown);
