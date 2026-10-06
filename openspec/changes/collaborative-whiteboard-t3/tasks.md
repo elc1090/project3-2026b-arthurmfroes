@@ -59,7 +59,7 @@ When multiple implementers share this uncommitted working tree, assign exclusive
 - [x] 6.1 Add authorized image upload/download and Yjs asset references; verify file, clipboard, and study-template images appear at the same position and size for authorized members and are denied to nonmembers.
 - [ ] 6.2 Store disconnected image insertions as local pending assets and publish them after upload; verify an offline paste survives tab closure and later appears on another member's board.
 - [ ] 6.3 Restore the study gallery and sidebar, PNG export, per-board manual PNG save for AI analysis, and feedback display; verify each action using the feature-parity checklist and a board containing text, shapes, strokes, and images.
-- [ ] 6.4 Complete the pen, highlighter, line, arrow, rectangle, MUX, ALU, text, erase, selection, move, clear, pan, zoom, and fit interactions; verify each item in the feature-parity checklist in a browser run.
+- [x] 6.4 Complete the pen, highlighter, line, arrow, rectangle, MUX, ALU, text, erase, selection, move, clear, pan, zoom, and fit interactions; verify each item in the feature-parity checklist in a browser run.
 
 ## 7. Observability and bounded history
 
