@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
 import { openOfflineBoard } from '../src/client/offline-board.js';
 
-test('a board document restores its local Yjs state after closing and reopening', async () => {
+test('a board document restores an edit when its tab closes immediately after the edit', async () => {
   const boardId = `offline-${randomUUID()}`;
   let session = openOfflineBoard(boardId);
 

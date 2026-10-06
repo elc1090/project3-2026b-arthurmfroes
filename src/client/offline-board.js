@@ -24,9 +24,36 @@ export function openOfflineBoard(boardId) {
     ready,
     destroy() {
       if (!destroyPromise) {
-        destroyPromise = persistence.destroy().finally(() => doc.destroy());
+        destroyPromise = (async () => {
+          try {
+            await ready;
+            await persistFinalState(persistence, doc);
+          } finally {
+            try {
+              await persistence.destroy();
+            } finally {
+              doc.destroy();
+            }
+          }
+        })();
       }
       return destroyPromise;
     },
+  });
+}
+
+function persistFinalState(persistence, doc) {
+  if (!persistence.db) {
+    throw new Error('IndexedDB must be ready before the board can be closed');
+  }
+
+  // y-indexeddb does not expose completion promises for its per-update writes.
+  // This full state entry is a transaction barrier for an explicit clean close;
+  // abrupt tab termination still relies on those writes completing normally.
+  return new Promise((resolve, reject) => {
+    const transaction = persistence.db.transaction('updates', 'readwrite');
+    transaction.objectStore('updates').add(Y.encodeStateAsUpdate(doc));
+    transaction.oncomplete = resolve;
+    transaction.onabort = () => reject(transaction.error ?? new Error('IndexedDB board flush was aborted'));
   });
 }
