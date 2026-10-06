@@ -1,5 +1,14 @@
 import { addElement, createElementId } from '../shared/board-model.js';
 
+export {
+  enqueuePendingBoardImage,
+  listPendingBoardImages,
+  publishPendingBoardImages,
+  removePendingBoardImage,
+  shouldQueuePendingImage,
+  subscribePendingBoardImages,
+} from '../client/pending-board-images.js';
+
 export function boardImageHref(boardId, assetId) {
   return `/api/boards/${encodeURIComponent(boardId)}/assets/${encodeURIComponent(assetId)}`;
 }
