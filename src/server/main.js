@@ -6,6 +6,7 @@ import Database from 'better-sqlite3';
 import { handleAuthRequest } from './auth.js';
 import { handleBoardRequest } from './boards.js';
 import { createBoardUpdateStore } from './board-update-store.js';
+import { attachBoardSync } from './board-sync.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
@@ -57,7 +58,7 @@ export async function createAppServer(options = {}) {
   const db = options.db ?? await openDatabase();
   const boardUpdateStore = options.boardUpdateStore ?? createBoardUpdateStore(db);
   const trustProxy = options.trustProxy ?? process.env.TRUST_PROXY === 'true';
-  return createServer(async (request, response) => {
+  const server = createServer(async (request, response) => {
     if (await handleAuthRequest(request, response, db, { trustProxy })) return;
     if (await handleBoardRequest(request, response, db, boardUpdateStore)) return;
 
@@ -92,6 +93,8 @@ export async function createAppServer(options = {}) {
       response.writeHead(404).end();
     }
   });
+  attachBoardSync(server, { db, updateStore: boardUpdateStore });
+  return server;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
