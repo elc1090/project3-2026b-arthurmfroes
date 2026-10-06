@@ -116,6 +116,8 @@ Os totais somam A e B na direção de envio. WebRTC inclui Awareness, que respon
 
 O experimento pareado mantém a VPS ativa para isolar o efeito do P2P. A demonstração de continuidade quando a VPS está pausada é separada: `test/board-session.browser.test.js` mostra A e B trocando updates por WebRTC com o WebSocket de sincronização pausado e depois persistindo ao retomar. O caso de chegada atrasada acima mostra a diferença de estado entre A/B e C antes da recuperação.
 
+Na avaliação manual de 6 de outubro de 2026, o usuário abriu o quadro em dois navegadores e confirmou que a colaboração P2P continuou após pausar a sincronização da VPS. Ele aprovou o funcionamento desta entrega e apontou a interface como insatisfatória; a revisão visual fica para uma mudança posterior.
+
 Limitações conhecidas para interpretar o resultado:
 
 - A timeline local preserva a sequência e o relógio de cada réplica. Ela não estabelece uma ordem total entre relógios diferentes.
