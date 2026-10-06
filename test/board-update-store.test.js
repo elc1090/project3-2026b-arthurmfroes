@@ -131,6 +131,7 @@ test('checkpoint pruning preserves state across restart and late join, including
     assert.equal(fixture.db.prepare('SELECT COUNT(*) AS count FROM board_checkpoints WHERE board_id = ?').get('board-1').count, 1);
     fixture.db.close();
 
+    const expectedWithThird = [['first', 'one'], ['second', 'two'], ['third', 'three']];
     const reopened = await openDatabase(fixture.filename);
     try {
       const reopenedStore = createBoardUpdateStore(reopened);
@@ -165,9 +166,30 @@ test('checkpoint pruning preserves state across restart and late join, including
         bytes: Y.encodeStateAsUpdate(source, beforeThird),
       });
       assert.equal(reopened.prepare('SELECT sequence FROM board_updates WHERE id = ?').get('update-after-prune').sequence, 4);
+
+      const checkpointAndTail = reopenedStore.loadDocument('board-1');
+      assert.deepEqual([...checkpointAndTail.getMap('board').entries()].sort(), expectedWithThird);
+      checkpointAndTail.destroy();
+      const lateJoinBeforeRestart = reopenedStore.loadDocument('board-1');
+      assert.deepEqual([...lateJoinBeforeRestart.getMap('board').entries()].sort(), expectedWithThird);
+      lateJoinBeforeRestart.destroy();
       source.destroy();
     } finally {
       reopened.close();
+    }
+
+    const restarted = await openDatabase(fixture.filename);
+    try {
+      const restartedStore = createBoardUpdateStore(restarted);
+      const afterTailRestart = restartedStore.loadDocument('board-1');
+      assert.deepEqual([...afterTailRestart.getMap('board').entries()].sort(), expectedWithThird);
+      afterTailRestart.destroy();
+
+      const lateJoinAfterRestart = restartedStore.loadDocument('board-1');
+      assert.deepEqual([...lateJoinAfterRestart.getMap('board').entries()].sort(), expectedWithThird);
+      lateJoinAfterRestart.destroy();
+    } finally {
+      restarted.close();
     }
   } finally {
     source.destroy();
