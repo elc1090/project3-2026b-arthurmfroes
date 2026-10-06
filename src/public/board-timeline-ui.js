@@ -15,7 +15,7 @@ export function mountBoardTimelineUI({ session, container, limit = DEFAULT_LIMIT
   root.append(heading);
 
   const note = document.createElement('p');
-  note.textContent = 'Ordem, sequência e horário refletem a observação local desta réplica; não formam uma ordem global.';
+  note.textContent = 'Sequência e relógio pertencem à réplica indicada. A lista segue a chegada local ao painel e não impõe uma ordem global.';
   root.append(note);
 
   const list = document.createElement('ol');
@@ -29,8 +29,13 @@ export function mountBoardTimelineUI({ session, container, limit = DEFAULT_LIMIT
   const unsubscriptions = [];
   let destroyed = false;
 
-  function render(type, detail = {}) {
+  function appendEvent(type, detail = {}) {
     if (destroyed) return;
+    if (type === 'update-observed' && detail.actionId && Number.isSafeInteger(detail.updateBytes)) {
+      observedSizes.delete(detail.actionId);
+      observedSizes.set(detail.actionId, detail.updateBytes);
+      while (observedSizes.size > limit) observedSizes.delete(observedSizes.keys().next().value);
+    }
     const item = describeEvent(type, detail, observedSizes);
     if (!item) return;
 
@@ -39,7 +44,7 @@ export function mountBoardTimelineUI({ session, container, limit = DEFAULT_LIMIT
     if (Number.isSafeInteger(detail.sequence)) row.dataset.sequence = String(detail.sequence);
 
     const summary = document.createElement('p');
-    summary.textContent = `${item.label} · réplica ${detail.replicaId ?? 'desconhecida'} · sequência ${detail.sequence ?? 'indisponível'} · ${detail.observedAt ?? 'horário indisponível'} (relógio local)`;
+    summary.textContent = `${item.label} · réplica ${detail.replicaId ?? 'desconhecida'} · sequência ${detail.sequence ?? 'indisponível'} · ${detail.observedAt ?? 'horário indisponível'} (relógio da réplica indicada)`;
     row.append(summary);
 
     const updateId = detail.actionId;
@@ -75,10 +80,11 @@ export function mountBoardTimelineUI({ session, container, limit = DEFAULT_LIMIT
   }
 
   for (const type of ['update-observed', 'sync-batch', 'durable-ack']) {
-    unsubscriptions.push(session.on(type, detail => render(type, detail)));
+    unsubscriptions.push(session.on(type, detail => appendEvent(type, detail)));
   }
 
   return Object.freeze({
+    appendEvent,
     destroy() {
       if (destroyed) return;
       destroyed = true;
@@ -91,9 +97,6 @@ export function mountBoardTimelineUI({ session, container, limit = DEFAULT_LIMIT
 
 function describeEvent(type, detail, observedSizes) {
   if (type === 'update-observed') {
-    if (detail.actionId && Number.isSafeInteger(detail.updateBytes)) {
-      observedSizes.set(detail.actionId, detail.updateBytes);
-    }
     return {
       kind: `update-${detail.sourcePath ?? 'unknown'}`,
       label: labelForSource(detail.sourcePath, detail.actionKind),
@@ -116,6 +119,24 @@ function describeEvent(type, detail, observedSizes) {
       kind: 'durable-ack',
       label: 'Servidor confirmou persistência',
       updateBytes: detail.updateBytes ?? observedSizes.get(detail.actionId),
+      firstArrivalPath: detail.firstArrivalPath,
+    };
+  }
+
+  if (type === 'server-received') {
+    return {
+      kind: 'server-received',
+      label: 'VPS recebeu update',
+      updateBytes: detail.updateBytes,
+      firstArrivalPath: detail.firstArrivalPath,
+    };
+  }
+
+  if (type === 'durable-persisted') {
+    return {
+      kind: 'durable-persisted',
+      label: 'VPS confirmou persistência',
+      updateBytes: detail.updateBytes,
       firstArrivalPath: detail.firstArrivalPath,
     };
   }

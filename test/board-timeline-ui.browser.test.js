@@ -140,7 +140,7 @@ test('timeline shows peer receipt before VPS persistence and correlates local si
       'the timeline uses byte count only when the observed hash matches this update');
     assert.ok(Number(await ackRow.getAttribute('data-sequence')) > Number(await localRow.getAttribute('data-sequence')),
       'sequence numbers order observations within Alice only');
-    assert.match(await alicePage.locator('.board-timeline').textContent(), /não formam uma ordem global/);
+    assert.match(await alicePage.locator('.board-timeline').textContent(), /não impõe uma ordem global/);
     assert.ok(db.prepare('SELECT COUNT(*) AS count FROM board_updates WHERE board_id = ?').get(boardId).count > 0);
     await bobPage.waitForFunction(() => window.__session.doc.getMap('elements').has('timeline-shape'), null, { timeout: 10_000 });
 
@@ -156,8 +156,66 @@ test('timeline shows peer receipt before VPS persistence and correlates local si
     assert.match(await syncBatchRow.locator('[data-field="update-bytes"]').textContent(), /\d+ bytes/);
     assert.match(await syncBatchRow.textContent(), /Lote de sincronização recebido via server/);
 
-    await alicePage.evaluate(() => window.__timeline.destroy());
-    assert.equal(await alicePage.locator('.board-timeline').count(), 0, 'destroy removes the panel and its event listeners');
+    const vpsActionId = `sha256:${'a'.repeat(64)}`;
+    await alicePage.evaluate(actionId => {
+      window.__timeline.appendEvent('server-received', {
+        replicaId: 'vps:test', sequence: 40, observedAt: '2026-10-06T12:00:00.000Z',
+        actionId, updateBytes: 321, firstArrivalPath: 'client',
+      });
+      window.__timeline.appendEvent('durable-persisted', {
+        replicaId: 'vps:test', sequence: 41, observedAt: '2026-10-06T12:00:00.010Z',
+        actionId, updateBytes: 321, committedAt: '2026-10-06T12:00:00.010Z',
+      });
+    }, vpsActionId);
+    const serverReceivedRow = alicePage.locator('[data-event-type="server-received"]').last();
+    const persistedRow = alicePage.locator('[data-event-type="durable-persisted"]').last();
+    assert.match(await serverReceivedRow.textContent(), /VPS recebeu update/);
+    assert.match(await persistedRow.textContent(), /VPS confirmou persistência/);
+    assert.match(await persistedRow.textContent(), /relógio da réplica indicada/);
+    assert.equal((await persistedRow.locator('[data-field="action-id"]').textContent()).includes(vpsActionId), true);
+
+    await alicePage.evaluate(() => {
+      const container = document.createElement('main');
+      container.id = 'bounded-timeline-container';
+      document.body.append(container);
+      window.__boundedTimeline = window.mountBoardTimelineUI({
+        session: window.__session, container, limit: 2,
+      });
+      const now = '2026-10-06T12:30:00.000Z';
+      window.__boundedTimeline.appendEvent('update-observed', {
+        replicaId: 'browser:test', sequence: 1, observedAt: now,
+        actionId: `sha256:${'1'.repeat(64)}`, sourcePath: 'local', updateBytes: 11,
+      });
+      window.__boundedTimeline.appendEvent('update-observed', {
+        replicaId: 'browser:test', sequence: 2, observedAt: now,
+        actionId: `sha256:${'2'.repeat(64)}`, sourcePath: 'local', updateBytes: 22,
+      });
+      window.__boundedTimeline.appendEvent('update-observed', {
+        replicaId: 'browser:test', sequence: 3, observedAt: now,
+        actionId: `sha256:${'3'.repeat(64)}`, sourcePath: 'local', updateBytes: 33,
+      });
+      window.__boundedTimeline.appendEvent('durable-ack', {
+        replicaId: 'browser:test', sequence: 4, observedAt: now,
+        actionId: `sha256:${'1'.repeat(64)}`,
+      });
+      window.__boundedTimeline.appendEvent('durable-ack', {
+        replicaId: 'browser:test', sequence: 5, observedAt: now,
+        actionId: `sha256:${'3'.repeat(64)}`,
+      });
+    });
+    const boundedTimeline = alicePage.locator('#bounded-timeline-container .board-timeline');
+    assert.equal(await boundedTimeline.locator('.board-timeline__events > li').count(), 2,
+      'the visible rows remain bounded by the requested limit');
+    assert.equal(await boundedTimeline.locator('[data-event-type="durable-ack"]').nth(0).locator('[data-field="update-bytes"]').textContent(), 'Tamanho: indisponível',
+      'a byte-size hash older than the retained cache is not guessed');
+    assert.equal(await boundedTimeline.locator('[data-event-type="durable-ack"]').nth(1).locator('[data-field="update-bytes"]').textContent(), 'Tamanho: 33 bytes',
+      'a recent matching update hash still supplies its observed byte count');
+
+    await alicePage.evaluate(() => {
+      window.__boundedTimeline.destroy();
+      window.__timeline.destroy();
+    });
+    assert.equal(await alicePage.locator('#timeline .board-timeline').count(), 0, 'destroy removes the panel and its event listeners');
   } finally {
     await aliceContext?.close();
     await bobContext?.close();
