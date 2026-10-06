@@ -151,18 +151,20 @@ test('experiment comparison exports paired modes as JSON and CSV', () => {
   const comparison = createSyncExperimentComparison({
     scenario: 'same "script"',
     createdAt: '2026-01-01T00:00:00.000Z',
+    separateDemonstration: { scenario: 'hybrid-vps-paused', evidenceTest: 'test/board-session.browser.test.js' },
     runs: [
-      { mode: 'hybrid', replicas, peerVisibleMs: 3.5, allClientsConvergedMs: 5, vpsDurableMs: 8, serverUpdateRows: 2 },
-      { mode: 'server-only', replicas, peerVisibleMs: null, allClientsConvergedMs: 7, vpsDurableMs: 6, serverUpdateRows: 2 },
+      { mode: 'hybrid', vpsWebSocket: 'active', p2p: 'active', replicas, firstVisibleMs: 3.5, firstArrivalPath: 'peer-room', peerVisibleMs: 3.5, allClientsConvergedMs: 5, vpsDurableMs: 8, serverUpdateRows: 2 },
+      { mode: 'server-only', vpsWebSocket: 'active', p2p: 'paused', replicas, firstVisibleMs: 4, firstArrivalPath: 'server', peerVisibleMs: null, allClientsConvergedMs: 7, vpsDurableMs: 6, serverUpdateRows: 2 },
     ],
   });
   const json = exportSyncExperimentJson(comparison);
   assert.equal(JSON.parse(json).runs.length, 2);
+  assert.equal(JSON.parse(json).separateDemonstration.scenario, 'hybrid-vps-paused');
   assert.match(json, /WS\/TCP\/TLS\/SCTP\/DTLS\/IP overhead/);
   const csv = exportSyncExperimentCsv(comparison);
-  assert.match(csv, /^scenario,trafficScope,mode,replica,channel,direction,bytes,messages,updateMessages/);
+  assert.match(csv, /^scenario,trafficScope,mode,vpsWebSocket,p2p,replica,channel,direction,bytes,messages,updateMessages/);
   assert.match(csv, /"same ""script""/);
-  assert.match(csv, /"same ""script""",WebSocket UTF-8 JSON and WebRTC datachannel payload bytes; excludes WS\/TCP\/TLS\/SCTP\/DTLS\/IP overhead and retransmissions,server-only,alice,webrtc,sent,0,0,0,0,0,0,0,,7,6,2/);
+  assert.match(csv, /"same ""script""",WebSocket UTF-8 JSON and WebRTC datachannel payload bytes; excludes WS\/TCP\/TLS\/SCTP\/DTLS\/IP overhead and retransmissions,server-only,active,paused,alice,webrtc,sent,0,0,0,0,0,0,0,4,server,,7,6,2/);
 });
 
 test('live metrics panel refreshes, resets, and exports one replica as JSON and CSV', () => {

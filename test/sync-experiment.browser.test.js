@@ -11,6 +11,7 @@ import { test } from 'node:test';
 import { build } from 'esbuild';
 import { chromium } from 'playwright';
 import { createSyncExperimentComparison, exportSyncExperimentCsv, exportSyncExperimentJson } from '../src/client/sync-experiment.js';
+import { createBoardUpdateStore } from '../src/server/board-update-store.js';
 import { createAppServer, openDatabase } from '../src/server/main.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -20,7 +21,7 @@ const fixtureHtml = `<!doctype html>
   <div id="toolbar"><button id="rectangle-tool" data-board-tool="rectangle">Rectangle</button></div>
   <canvas id="board-canvas" width="320" height="240" style="width:320px;height:240px"></canvas>
   <script type="module">
-    import { mountBoardCanvas, openBoardSession } from '/board.bundle.js';
+    import { mountBoardCanvas, mountSyncExperimentUI, openBoardSession } from '/board.bundle.js';
     const query = new URL(location.href).searchParams;
     const boardId = query.get('boardId');
     window.__events = [];
@@ -36,6 +37,7 @@ const fixtureHtml = `<!doctype html>
         canvas: document.querySelector('#board-canvas'),
         toolbar: document.querySelector('#toolbar'),
       });
+      window.__mountSyncExperimentUI = mountSyncExperimentUI;
       document.body.dataset.ready = 'true';
     } catch (error) { document.body.dataset.error = String(error); }
   </script>
@@ -90,6 +92,7 @@ test('same Canvas edit script exports measured hybrid and server-only traffic an
   const db = await openDatabase(join(directory, 'board.sqlite'));
   const alice = addAccount(db, 'experimentsalice');
   const bob = addAccount(db, 'experimentsbob');
+  const updateStore = createBoardUpdateStore(db);
   await build({
     absWorkingDir: root,
     entryPoints: ['src/public/board-session-entry.js'],
@@ -97,7 +100,7 @@ test('same Canvas edit script exports measured hybrid and server-only traffic an
     format: 'esm',
     outfile: join(root, 'src/public/board.bundle.js'),
   });
-  const server = await createAppServer({ db });
+  const server = await createAppServer({ db, boardUpdateStore: updateStore });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
@@ -126,14 +129,6 @@ test('same Canvas edit script exports measured hybrid and server-only traffic an
         await Promise.all([
           alicePage.waitForFunction(() => window.__session.p2pPeerCount > 0, null, { timeout: 15_000 }),
           bobPage.waitForFunction(() => window.__session.p2pPeerCount > 0, null, { timeout: 15_000 }),
-        ]);
-        await Promise.all([
-          alicePage.evaluate(() => window.__session.pauseServerSync()),
-          bobPage.evaluate(() => window.__session.pauseServerSync()),
-        ]);
-        await Promise.all([
-          alicePage.waitForFunction(() => window.__session.serverStatus === 'paused'),
-          bobPage.waitForFunction(() => window.__session.serverStatus === 'paused'),
         ]);
       } else {
         assert.equal(await alicePage.evaluate(() => window.__session.p2pPeerCount), 0);
@@ -168,60 +163,64 @@ test('same Canvas edit script exports measured hybrid and server-only traffic an
         alicePage.evaluate(() => window.__session.resetExperimentMetrics()),
         bobPage.evaluate(() => window.__session.resetExperimentMetrics()),
       ]);
+      assert.deepEqual(await Promise.all([alicePage, bobPage].map(page => page.evaluate(() => window.__session.serverStatus))),
+        ['connected', 'connected'], 'the direct comparison keeps the VPS WebSocket active in both modes');
       const start = performance.now();
 
       await drawRectangle(alicePage, 25, 30);
-      let peerVisibleMs = null;
-      if (mode === 'hybrid') {
-        await bobPage.waitForFunction(() => window.__session.doc.getMap('elements').size === 1
-          && window.__events.some(({ type, detail }) => type === 'update-observed'
-            && detail.sourcePath === 'peer-room' && detail.directPeerConnectedAtObservation === true), null, { timeout: 10_000 });
-        peerVisibleMs = performance.now() - start;
-      } else {
-        await bobPage.waitForFunction(() => window.__session.doc.getMap('elements').size === 1, null, { timeout: 10_000 });
-        assert.equal(await bobPage.evaluate(() => window.__events.some(({ type, detail }) =>
-          type === 'update-observed' && detail.sourcePath === 'peer-room')), false,
-        'server-only run has no peer-room arrival');
-      }
+      await bobPage.waitForFunction(() => window.__session.doc.getMap('elements').size === 1, null, { timeout: 10_000 });
+      const firstVisibleMs = performance.now() - start;
+      await bobPage.waitForFunction(() => window.__events.some(({ type, detail }) =>
+        type === 'update-observed' && ['peer-room', 'server'].includes(detail.sourcePath)), null, { timeout: 5_000 });
+      const firstArrivalPath = await bobPage.evaluate(() => window.__events.find(({ type, detail }) =>
+        type === 'update-observed' && ['peer-room', 'server'].includes(detail.sourcePath))?.detail.sourcePath ?? null);
+      assert.ok(firstArrivalPath, 'the first arrival path comes from the observed update event');
+      if (mode === 'server-only') assert.equal(firstArrivalPath, 'server');
+      const peerVisibleMs = mode === 'hybrid' && firstArrivalPath === 'peer-room' ? firstVisibleMs : null;
 
       await drawRectangle(bobPage, 120, 75);
-      await Promise.all([
-        alicePage.waitForFunction(() => window.__session.doc.getMap('elements').size === 2, null, { timeout: 10_000 }),
-        bobPage.waitForFunction(() => window.__session.doc.getMap('elements').size === 2, null, { timeout: 10_000 }),
-      ]);
-      const allClientsConvergedMs = performance.now() - start;
-
-      if (mode === 'hybrid') {
-        assert.equal(db.prepare('SELECT COUNT(*) AS count FROM board_updates WHERE board_id = ?').get(boardId).count, 0,
-          'the VPS remains unpersisted while both clients have converged over the peer path');
-        assert.equal(await alicePage.evaluate(() => window.__events.some(({ type }) => type === 'durable-ack')), false);
-        assert.equal(await bobPage.evaluate(() => window.__events.some(({ type }) => type === 'durable-ack')), false);
-        await Promise.all([
-          alicePage.evaluate(() => window.__session.resumeServerSync()),
-          bobPage.evaluate(() => window.__session.resumeServerSync()),
-        ]);
-      }
-      await alicePage.waitForFunction(() => window.__events.filter(({ type }) => type === 'durable-ack').length >= 1,
-        null, { timeout: 15_000 });
-      await bobPage.waitForFunction(() => window.__events.filter(({ type }) => type === 'durable-ack').length >= 1,
-        null, { timeout: 15_000 });
-      await new Promise((resolve, reject) => {
+      const allClientsConvergedPromise = Promise.all([
+        alicePage.waitForFunction(() => window.__session.doc.getMap('elements').size === 2, null, { timeout: 15_000 }),
+        bobPage.waitForFunction(() => window.__session.doc.getMap('elements').size === 2, null, { timeout: 15_000 }),
+      ]).then(() => performance.now() - start);
+      const vpsDurablePromise = Promise.all([
+        alicePage.waitForFunction(() => window.__events.filter(({ type }) => type === 'durable-ack').length >= 1,
+          null, { timeout: 15_000 }),
+        bobPage.waitForFunction(() => window.__events.filter(({ type }) => type === 'durable-ack').length >= 1,
+          null, { timeout: 15_000 }),
+      ]).then(() => new Promise((resolve, reject) => {
         const deadline = performance.now() + 10_000;
         const poll = () => {
-          const rows = db.prepare('SELECT COUNT(*) AS count FROM board_updates WHERE board_id = ?').get(boardId).count;
-          if (rows >= 2) return resolve();
-          if (performance.now() >= deadline) return reject(new Error(`server persisted only ${rows} experiment updates`));
+          const serverDoc = updateStore.loadDocument(boardId);
+          const elementCount = serverDoc.getMap('elements').size;
+          serverDoc.destroy();
+          if (elementCount === 2) return resolve(performance.now() - start);
+          if (performance.now() >= deadline) return reject(new Error(`durable server state has ${elementCount} experiment elements`));
           setTimeout(poll, 20);
         };
         poll();
-      });
-      const vpsDurableMs = performance.now() - start;
+      }));
+      const [allClientsConvergedMs, vpsDurableMs] = await Promise.all([
+        allClientsConvergedPromise,
+        vpsDurablePromise,
+      ]);
       const serverUpdateRows = db.prepare('SELECT COUNT(*) AS count FROM board_updates WHERE board_id = ?').get(boardId).count;
       const replicas = {
         alice: await alicePage.evaluate(() => window.__session.experimentMetrics),
         bob: await bobPage.evaluate(() => window.__session.experimentMetrics),
       };
-      return { mode, replicas, peerVisibleMs, allClientsConvergedMs, vpsDurableMs, serverUpdateRows };
+      return {
+        mode,
+        vpsWebSocket: 'active',
+        p2p: mode === 'hybrid' ? 'active' : 'paused',
+        replicas,
+        firstVisibleMs,
+        firstArrivalPath,
+        peerVisibleMs,
+        allClientsConvergedMs,
+        vpsDurableMs,
+        serverUpdateRows,
+      };
     } finally {
       await Promise.all([
         alicePage?.evaluate(() => window.__session.destroy()).catch(() => {}),
@@ -234,14 +233,25 @@ test('same Canvas edit script exports measured hybrid and server-only traffic an
   try {
     const runs = [await runMode('hybrid'), await runMode('server-only')];
     const comparison = createSyncExperimentComparison({
-      scenario: 'Alice draws one rectangle; Bob draws one rectangle; both clients converge; wait for VPS durable ACK',
+      scenario: 'Same two rectangle actions with VPS WebSocket active in both modes; wait for client convergence and VPS durable ACK',
+      separateDemonstration: {
+        scenario: 'hybrid-vps-paused',
+        evidenceTest: 'test/board-session.browser.test.js',
+        evidenceCase: 'two isolated Chrome profiles exchange through WebRTC with board WS paused, then persist after resume',
+        includedInComparison: false,
+      },
       runs,
     });
     const json = exportSyncExperimentJson(comparison);
     const csv = exportSyncExperimentCsv(comparison);
     assert.equal(JSON.parse(json).runs.length, 2);
-    assert.match(csv, /hybrid,alice,webrtc,sent/);
-    assert.match(csv, /server-only,bob,websocket,received/);
+    assert.equal(JSON.parse(json).separateDemonstration.includedInComparison, false);
+    assert.deepEqual(JSON.parse(json).runs.map(run => [run.vpsWebSocket, run.p2p]), [
+      ['active', 'active'],
+      ['active', 'paused'],
+    ]);
+    assert.match(csv, /hybrid,active,active,alice,webrtc,sent/);
+    assert.match(csv, /server-only,active,paused,bob,websocket,received/);
     assert.match(comparison.trafficScope, /excludes WS\/TCP\/TLS\/SCTP\/DTLS\/IP overhead/);
     if (process.env.SYNC_EXPERIMENT_OUTPUT_DIR) {
       await mkdir(process.env.SYNC_EXPERIMENT_OUTPUT_DIR, { recursive: true });
@@ -252,7 +262,11 @@ test('same Canvas edit script exports measured hybrid and server-only traffic an
     }
 
     const [hybrid, serverOnly] = runs;
-    assert.ok(hybrid.peerVisibleMs > 0, 'hybrid run measures a direct peer arrival before VPS resumes');
+    assert.ok(hybrid.firstVisibleMs > 0, 'hybrid run records the first visible arrival regardless of transport winner');
+    assert.ok(hybrid.firstVisibleMs > 0 && ['peer-room', 'server'].includes(hybrid.firstArrivalPath));
+    assert.equal(hybrid.peerVisibleMs, hybrid.firstArrivalPath === 'peer-room' ? hybrid.firstVisibleMs : null);
+    assert.ok(serverOnly.firstVisibleMs > 0);
+    assert.equal(serverOnly.firstArrivalPath, 'server');
     assert.equal(serverOnly.peerVisibleMs, null, 'server-only has no peer arrival measurement');
     assert.ok(hybrid.allClientsConvergedMs > 0 && serverOnly.allClientsConvergedMs > 0);
     assert.ok(hybrid.vpsDurableMs > 0 && serverOnly.vpsDurableMs > 0);

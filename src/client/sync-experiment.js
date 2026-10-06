@@ -144,12 +144,17 @@ export function attachWebrtcPayloadMetrics(provider, metrics) {
 }
 
 /** Build a JSON-safe paired-run comparison; times are runner-monotonic ms. */
-export function createSyncExperimentComparison({ scenario, runs, createdAt = new Date().toISOString() }) {
+export function createSyncExperimentComparison({
+  scenario,
+  runs,
+  separateDemonstration = null,
+  createdAt = new Date().toISOString(),
+}) {
   if (!Array.isArray(runs) || runs.length !== 2
     || !runs.some(run => run.mode === 'hybrid') || !runs.some(run => run.mode === 'server-only')) {
     throw new TypeError('A comparison requires one hybrid run and one server-only run');
   }
-  return {
+  const comparison = {
     schemaVersion: 1,
     scenario: String(scenario ?? 'scripted board edits'),
     createdAt,
@@ -157,6 +162,8 @@ export function createSyncExperimentComparison({ scenario, runs, createdAt = new
     trafficScope: 'WebSocket UTF-8 JSON and WebRTC datachannel payload bytes; excludes WS/TCP/TLS/SCTP/DTLS/IP overhead and retransmissions',
     runs: structuredClone(runs),
   };
+  if (separateDemonstration) comparison.separateDemonstration = structuredClone(separateDemonstration);
+  return comparison;
 }
 
 export function exportSyncExperimentJson(comparison) {
@@ -199,9 +206,9 @@ export function exportLiveSyncMetricsCsv(snapshot) {
 /** Flatten each replica/channel/direction into CSV; Awareness is its own column. */
 export function exportSyncExperimentCsv(comparison) {
   const columns = [
-    'scenario', 'trafficScope', 'mode', 'replica', 'channel', 'direction', 'bytes', 'messages', 'updateMessages',
+    'scenario', 'trafficScope', 'mode', 'vpsWebSocket', 'p2p', 'replica', 'channel', 'direction', 'bytes', 'messages', 'updateMessages',
     'awarenessBytes', 'awarenessMessages', 'syncBytes', 'otherBytes',
-    'peerVisibleMs', 'allClientsConvergedMs', 'vpsDurableMs', 'serverUpdateRows',
+    'firstVisibleMs', 'firstArrivalPath', 'peerVisibleMs', 'allClientsConvergedMs', 'vpsDurableMs', 'serverUpdateRows',
   ];
   const rows = [columns.join(',')];
   for (const run of comparison.runs) {
@@ -211,10 +218,12 @@ export function exportSyncExperimentCsv(comparison) {
         for (const direction of DIRECTIONS) {
           const counters = metrics?.[channel]?.[direction] ?? emptyCounters();
           rows.push([
-            csvCell(comparison.scenario), csvCell(comparison.trafficScope), csvCell(run.mode), csvCell(replica), channel, direction,
+            csvCell(comparison.scenario), csvCell(comparison.trafficScope), csvCell(run.mode),
+            csvCell(run.vpsWebSocket), csvCell(run.p2p), csvCell(replica), channel, direction,
             counters.bytes, counters.messages, counters.updateMessages,
             counters.awarenessBytes, counters.awarenessMessages, counters.syncBytes, counters.otherBytes,
-            nullableNumber(run.peerVisibleMs), nullableNumber(run.allClientsConvergedMs),
+            nullableNumber(run.firstVisibleMs), csvCell(run.firstArrivalPath), nullableNumber(run.peerVisibleMs),
+            nullableNumber(run.allClientsConvergedMs),
             nullableNumber(run.vpsDurableMs), run.serverUpdateRows ?? '',
           ].join(','));
         }
