@@ -9,6 +9,7 @@ import { createBoardUpdateStore } from './board-update-store.js';
 import { attachBoardSync } from './board-sync.js';
 import { attachSignaling, createSignalingState, handleSignalingHttpRequest } from './signaling.js';
 import { handleAssetRequest } from './assets.js';
+import { handleStudyFeatureRequest } from './study-features.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
@@ -64,6 +65,7 @@ export async function createAppServer(options = {}) {
   const db = options.db ?? await openDatabase();
   const boardUpdateStore = options.boardUpdateStore ?? createBoardUpdateStore(db);
   const assetStorageDirectory = options.assetStorageDirectory ?? resolve(root, 'data/assets');
+  const studyTemplateDirectory = options.templateDirectory ?? templateDir;
   const trustProxy = options.trustProxy ?? process.env.TRUST_PROXY === 'true';
   const signalingState = options.signalingState ?? createSignalingState(
     process.env.SIGNALING_SECRET ? Buffer.from(process.env.SIGNALING_SECRET) : undefined,
@@ -76,6 +78,7 @@ export async function createAppServer(options = {}) {
     if (await handleBoardRequest(request, response, db, boardUpdateStore, {
       onBoardEpochChanged: (boardId, epoch) => notifyBoardEpochChanged(boardId, epoch),
     })) return;
+    if (await handleStudyFeatureRequest(request, response, db, { templateDirectory: studyTemplateDirectory })) return;
 
     const templateMatch = request.url.match(/^\/api\/templates\/([a-z0-9-]+)$/);
     if (request.method === 'GET' && templateMatch) {
