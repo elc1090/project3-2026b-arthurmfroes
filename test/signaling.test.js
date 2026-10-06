@@ -150,18 +150,26 @@ test('private signaling checks sessions, membership, board isolation, and board 
     await delay(50);
     assert.deepEqual(receivedTopics, [], 'board B signaling is not delivered to a board A subscriber');
 
+    const founderEpochChange = nextMessage(founderSocket);
+    const memberEpochChange = nextMessage(memberSocket);
     const revoke = await fetch(`${app.baseUrl}/api/boards/${boardA.id}/members/${founder.account.id}/revoke`, {
       method: 'POST', headers: { cookie: member.cookie },
     });
     assert.equal(revoke.status, 200);
     assert.equal((await revoke.json()).epoch, 2);
+    assert.deepEqual(await founderEpochChange, {
+      type: 'board-epoch-changed', boardId: boardA.id, epoch: 2, topic: founderA.body.topic,
+    }, 'an authenticated socket for the revoked member is told to leave the old room');
+    assert.deepEqual(await memberEpochChange, {
+      type: 'board-epoch-changed', boardId: boardA.id, epoch: 2, topic: memberA.body.topic,
+    }, 'active members are told to leave the old room after the epoch commits');
 
     assert.equal((await sendAndRead(memberSocket, {
       type: 'publish', topic: memberA.body.topic, data: { type: 'announce', from: 'member' },
-    })).error, 'stale_epoch', 'a remaining member cannot signal on the old epoch');
+    })).error, 'not_subscribed', 'an active member is removed from the old signaling room');
     assert.equal((await sendAndRead(founderSocket, {
       type: 'publish', topic: founderA.body.topic, data: { type: 'announce', from: 'founder' },
-    })).error, 'not_member', 'a revoked account cannot publish on its old epoch');
+    })).error, 'not_subscribed', 'a revoked account is removed from the old signaling room');
 
     const nextMemberA = await requestSignaling(app.baseUrl, boardA.id, member.cookie);
     assert.equal(nextMemberA.response.status, 200);
@@ -170,6 +178,9 @@ test('private signaling checks sessions, membership, board isolation, and board 
     assert.equal((await sendAndRead(memberSocket, {
       type: 'subscribe', topics: [memberA.body.topic],
     })).error, 'unknown_topic', 'the old room is no longer available');
+    assert.deepEqual(await sendAndRead(memberSocket, {
+      type: 'subscribe', topics: [nextMemberA.body.topic],
+    }), { type: 'subscribed', topics: [nextMemberA.body.topic] }, 'remaining members can join the new epoch');
     assert.equal((await sendAndRead(founderSocket, {
       type: 'subscribe', topics: [nextMemberA.body.topic],
     })).error, 'not_member', 'the revoked account cannot subscribe to the new epoch');

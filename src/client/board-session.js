@@ -27,10 +27,13 @@ export async function openBoardSession(boardId, {
   let peerPaused = initialPeerPaused;
   let peerProvider = null;
   let peerState = { connected: false, webrtcPeers: [], bcPeers: [] };
+  let peerEpoch = null;
+  let accessRevoked = false;
   let signalingRetry = null;
   let signalingAttempt = 0;
   let peerConnectGeneration = 0;
   const sessionListeners = new Map();
+  const signalingListenerCleanups = new WeakMap();
 
   function emit(type, detail) {
     onEvent(type, detail);
@@ -46,16 +49,108 @@ export async function openBoardSession(boardId, {
 
   function publishPeerState() {
     const room = peerProvider?.room;
+    const webrtcPeers = room ? [...room.webrtcConns.keys()] : [];
+    const bcPeers = room ? [...room.bcConns] : [];
     peerState = {
       connected: Boolean(peerProvider?.connected),
-      webrtcPeers: room ? [...room.webrtcConns.keys()] : [],
-      bcPeers: room ? [...room.bcConns] : [],
+      webrtcPeers,
+      bcPeers,
+      peerCount: room
+        ? [...room.webrtcConns.values()].filter((connection) => connection.connected).length
+        : 0,
+      topic: peerProvider?.roomName ?? null,
+      epoch: peerProvider ? peerEpoch : null,
     };
     emit('p2p-status', peerState);
   }
 
+  function removeSignalingListeners(provider) {
+    signalingListenerCleanups.get(provider)?.();
+    signalingListenerCleanups.delete(provider);
+  }
+
+  function disposePeerProvider(provider) {
+    removeSignalingListeners(provider);
+    const room = provider.room;
+    const connections = room ? [...room.webrtcConns.values()] : [];
+    const peerClosed = connections.map((connection) => new Promise((resolve) => {
+      if (connection.closed || connection.peer.destroyed) {
+        resolve();
+      } else {
+        connection.peer.once('close', resolve);
+      }
+    }));
+    provider.destroy();
+    return Promise.resolve(provider.key).then(() => Promise.all(peerClosed)).then(() => {
+      if (connections.length) {
+        emit('p2p-peers-removed', { topic: provider.roomName, peers: connections.map(({ remotePeerId }) => remotePeerId) });
+      }
+    });
+  }
+
+  function stopAfterAccessRevoked(type, detail = {}) {
+    if (accessRevoked || destroyed) return;
+    accessRevoked = true;
+    peerPaused = true;
+    peerConnectGeneration += 1;
+    if (signalingRetry !== null) clearTimeout(signalingRetry);
+    signalingRetry = null;
+    const previousProvider = peerProvider;
+    peerProvider = null;
+    if (previousProvider) void disposePeerProvider(previousProvider);
+    serverSync.pause();
+    serverSync.destroy();
+    publishPeerState();
+    emit(type, { boardId, epoch: peerEpoch, ...detail });
+  }
+
+  function rotatePeerProvider(provider, nextEpoch) {
+    if (destroyed || accessRevoked || peerProvider !== provider) return;
+    if (Number.isSafeInteger(nextEpoch) && nextEpoch <= peerEpoch) return;
+
+    peerConnectGeneration += 1;
+    const generation = peerConnectGeneration;
+    peerProvider = null;
+    if (Number.isSafeInteger(nextEpoch)) peerEpoch = nextEpoch;
+    const disposed = disposePeerProvider(provider);
+    publishPeerState();
+    void disposed.then(() => {
+      if (destroyed || accessRevoked || peerPaused || generation !== peerConnectGeneration) return;
+      void connectPeer();
+    }).catch((error) => emit('error', error));
+  }
+
+  function listenForBoardEpoch(provider) {
+    const connections = provider.signalingConns ?? [];
+    const listeners = [];
+    for (const connection of connections) {
+      if (typeof connection?.on !== 'function' || typeof connection?.off !== 'function') continue;
+      const onMessage = (message) => {
+        if (peerProvider !== provider || !message || typeof message !== 'object') return;
+        if (message.type === 'board-epoch-changed'
+          && message.boardId === boardId
+          && message.topic === provider.roomName
+          && Number.isSafeInteger(message.epoch)) {
+          rotatePeerProvider(provider, message.epoch);
+          return;
+        }
+        if (message.type !== 'error' || message.topic !== provider.roomName) return;
+        if (message.error === 'not_member') {
+          stopAfterAccessRevoked('membership-revoked', { source: 'signaling' });
+        } else if (message.error === 'unknown_topic' || message.error === 'stale_epoch') {
+          rotatePeerProvider(provider);
+        }
+      };
+      connection.on('message', onMessage);
+      listeners.push([connection, onMessage]);
+    }
+    signalingListenerCleanups.set(provider, () => {
+      for (const [connection, listener] of listeners) connection.off('message', listener);
+    });
+  }
+
   function scheduleSignalingRetry() {
-    if (destroyed || peerPaused || signalingRetry !== null || peerProvider) return;
+    if (destroyed || peerPaused || accessRevoked || signalingRetry !== null || peerProvider) return;
     const delay = SIGNALING_RETRY_DELAYS_MS[Math.min(signalingAttempt, SIGNALING_RETRY_DELAYS_MS.length - 1)];
     signalingAttempt += 1;
     signalingRetry = setTimeout(() => {
@@ -65,29 +160,47 @@ export async function openBoardSession(boardId, {
   }
 
   async function connectPeer() {
-    if (destroyed || peerPaused || peerProvider) return;
+    if (destroyed || peerPaused || accessRevoked || peerProvider) return;
     const generation = ++peerConnectGeneration;
     try {
       const accessUrl = new URL(`/api/boards/${encodeURIComponent(boardId)}/signaling`, locationHref);
       const response = await fetchImpl(accessUrl, { credentials: 'same-origin' });
       const access = await response.json();
+      if (destroyed || peerPaused || accessRevoked || peerProvider || generation !== peerConnectGeneration) return;
+      if (response.status === 403) {
+        stopAfterAccessRevoked('membership-revoked', { source: 'signaling-access' });
+        return;
+      }
+      if (response.status === 401) {
+        stopAfterAccessRevoked('session-expired', { source: 'signaling-access' });
+        return;
+      }
       if (!response.ok) throw new Error(access.error ?? 'Board peer access is unavailable');
-      if (destroyed || peerPaused || peerProvider || generation !== peerConnectGeneration) return;
+      if (!Number.isSafeInteger(access.epoch)) throw new Error('The signaling response has no board epoch');
 
       const signalingUrl = new URL('/api/signaling', locationHref);
       signalingUrl.protocol = signalingUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-      peerProvider = new WebrtcProvider(access.topic, doc, {
+      const nextProvider = new WebrtcProvider(access.topic, doc, {
         signaling: [signalingUrl.toString()],
         password: access.password,
         maxConns: 8,
         filterBcConns: true,
       });
-      peerProvider.on('status', publishPeerState);
-      peerProvider.on('peers', publishPeerState);
-      peerProvider.on('synced', (event) => emit('p2p-synced', event));
+      peerEpoch = access.epoch;
+      peerProvider = nextProvider;
+      listenForBoardEpoch(nextProvider);
+      nextProvider.on('status', publishPeerState);
+      nextProvider.on('peers', (event) => {
+        if (event.removed?.length) {
+          emit('p2p-peers-removed', { topic: nextProvider.roomName, peers: event.removed });
+        }
+        publishPeerState();
+      });
+      nextProvider.on('synced', (event) => emit('p2p-synced', event));
       signalingAttempt = 0;
       publishPeerState();
     } catch (error) {
+      if (destroyed || peerPaused || accessRevoked || generation !== peerConnectGeneration) return;
       emit('error', error);
       scheduleSignalingRetry();
     }
@@ -104,6 +217,7 @@ export async function openBoardSession(boardId, {
     get p2pPeerCount() {
       return [...(peerProvider?.room?.webrtcConns?.values() ?? [])].filter((connection) => connection.connected).length;
     },
+    get p2pEpoch() { return peerEpoch; },
     pauseServerSync() { serverSync.pause(); },
     resumeServerSync() { serverSync.resume(); },
     pausePeerSync() {
@@ -116,7 +230,7 @@ export async function openBoardSession(boardId, {
       publishPeerState();
     },
     resumePeerSync() {
-      if (destroyed || !peerPaused) return;
+      if (destroyed || accessRevoked || !peerPaused) return;
       peerPaused = false;
       if (peerProvider) peerProvider.connect();
       else void connectPeer();
@@ -136,7 +250,7 @@ export async function openBoardSession(boardId, {
       serverSync.destroy();
       const activeProvider = peerProvider;
       peerProvider = null;
-      activeProvider?.destroy();
+      if (activeProvider) disposePeerProvider(activeProvider);
       destroyPromise = Promise.resolve(activeProvider?.key).then(() => offline.destroy());
       return destroyPromise;
     },

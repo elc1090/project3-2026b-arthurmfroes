@@ -68,11 +68,14 @@ export async function createAppServer(options = {}) {
   const signalingState = options.signalingState ?? createSignalingState(
     process.env.SIGNALING_SECRET ? Buffer.from(process.env.SIGNALING_SECRET) : undefined,
   );
+  let notifyBoardEpochChanged = () => {};
   const server = createServer(async (request, response) => {
     if (await handleAuthRequest(request, response, db, { trustProxy })) return;
     if (handleSignalingHttpRequest(request, response, db, signalingState)) return;
     if (await handleAssetRequest(request, response, db, assetStorageDirectory)) return;
-    if (await handleBoardRequest(request, response, db, boardUpdateStore)) return;
+    if (await handleBoardRequest(request, response, db, boardUpdateStore, {
+      onBoardEpochChanged: (boardId, epoch) => notifyBoardEpochChanged(boardId, epoch),
+    })) return;
 
     const templateMatch = request.url.match(/^\/api\/templates\/([a-z0-9-]+)$/);
     if (request.method === 'GET' && templateMatch) {
@@ -129,6 +132,7 @@ export async function createAppServer(options = {}) {
   });
   attachBoardSync(server, { db, updateStore: boardUpdateStore });
   server.signaling = attachSignaling(server, db, signalingState);
+  notifyBoardEpochChanged = server.signaling.notifyBoardEpochChanged;
   return server;
 }
 

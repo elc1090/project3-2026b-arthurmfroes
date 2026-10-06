@@ -41,7 +41,7 @@ function sendBoardAuthorizationError(response, authorization) {
   return false;
 }
 
-export async function handleBoardRequest(request, response, db, updateStore) {
+export async function handleBoardRequest(request, response, db, updateStore, { onBoardEpochChanged = () => {} } = {}) {
   const url = new URL(request.url, 'http://localhost');
   if (!url.pathname.startsWith('/api/boards')) return false;
 
@@ -211,6 +211,7 @@ export async function handleBoardRequest(request, response, db, updateStore) {
       return { epoch };
     });
     const result = revokeMembership();
+    if (typeof result === 'object') onBoardEpochChanged(boardId, result.epoch);
     if (result === 'not_found') {
       sendJson(response, 404, { error: 'Quadro não encontrado.' });
     } else if (result === 'forbidden') {

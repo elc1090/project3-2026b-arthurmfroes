@@ -85,6 +85,35 @@ function removeSocket(socket) {
   for (const topic of [...socket.topics]) removeTopic(socket, topic);
 }
 
+function notifyBoardEpochChanged(state, db, subscribers, boardId, epoch) {
+  const previousTopic = state.boardTopics.get(boardId);
+  if (!previousTopic) return;
+  const previousRoom = state.rooms.get(previousTopic);
+  if (!previousRoom || epoch <= previousRoom.epoch) return;
+
+  for (const socket of [...(subscribers.get(previousTopic) ?? [])]) {
+    if (!getAuthenticatedSession(socket.signalingRequest, db)) {
+      socket.close(1008, 'Signaling session expired');
+      removeTopic(socket, previousTopic);
+      continue;
+    }
+    if (socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({
+        type: 'board-epoch-changed',
+        boardId,
+        epoch,
+        topic: previousTopic,
+      }));
+    }
+    removeTopic(socket, previousTopic);
+  }
+
+  state.rooms.delete(previousTopic);
+  const { topic } = roomMaterial(state, boardId, epoch);
+  state.rooms.set(topic, { boardId, epoch });
+  state.boardTopics.set(boardId, topic);
+}
+
 function currentMembership(socket, room) {
   const session = getAuthenticatedSession(socket.signalingRequest, socket.serverState.db);
   if (!session) return { status: 'session_expired' };
@@ -217,6 +246,7 @@ export function attachSignaling(server, db, state = createSignalingState()) {
 
   return {
     state,
+    notifyBoardEpochChanged: (boardId, epoch) => notifyBoardEpochChanged(state, db, subscribers, boardId, epoch),
     close: () => new Promise((resolve) => {
       for (const client of wss.clients) client.close();
       wss.close(resolve);
