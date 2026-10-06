@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+whiteboard/current_board.json
+whiteboard/current_board.png
+whiteboard/ai_feedback.json
+whiteboard/snapshots/*.png
+!whiteboard/snapshots/.gitkeep
