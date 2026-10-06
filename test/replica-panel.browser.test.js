@@ -152,6 +152,20 @@ test('two browser replicas stay ahead of the VPS preview while server sync is pa
     null, { timeout: 15_000 });
     await waitForPreview(alicePage, 'vps', 0);
     await waitForPreview(bobPage, 'vps', 0);
+    const pendingActionHandle = await bobPage.waitForFunction(() =>
+      document.querySelector('#board-sync-status tr[data-pending="true"]')?.dataset.actionId ?? null,
+    null, { timeout: 10_000 });
+    const statusActionId = await pendingActionHandle.jsonValue();
+    assert.equal(typeof statusActionId, 'string');
+    await bobPage.waitForFunction((actionId) => {
+      const row = [...document.querySelectorAll('#board-sync-status tr[data-action-id]')]
+        .find((item) => item.dataset.actionId === actionId);
+      return row?.querySelector('[data-flag="peer"]')?.textContent === 'Sim'
+        && row?.querySelector('[data-flag="durable"]')?.textContent === '—'
+        && row?.dataset.pending === 'true';
+    }, statusActionId, { timeout: 10_000 });
+    await bobPage.waitForFunction(() => [...document.querySelectorAll('.board-timeline__events li')]
+      .some((row) => row.dataset.eventType === 'update-peer-room'));
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM board_updates WHERE board_id = ?').get(boardId).count, 0,
       'diagnostic snapshots do not enter the durable VPS store');
     const previews = await alicePage.locator('.replica-preview-card').evaluateAll((cards) =>
@@ -177,15 +191,32 @@ test('two browser replicas stay ahead of the VPS preview while server sync is pa
     })));
     await Promise.all([alicePage, bobPage].map((page) => page.locator('#replica-resume-server').click()));
     await Promise.all([alicePage, bobPage].map((page) => waitForPreview(page, 'vps', 2)));
+    await bobPage.waitForFunction((actionId) => {
+      const row = [...document.querySelectorAll('#board-sync-status tr[data-action-id]')]
+        .find((item) => item.dataset.actionId === actionId);
+      return row?.querySelector('[data-flag="server"]')?.textContent === 'Sim'
+        && row?.querySelector('[data-flag="durable"]')?.textContent === 'Sim'
+        && row?.dataset.pending !== 'true';
+    }, statusActionId, { timeout: 10_000 });
+    await Promise.all([alicePage, bobPage].map((page) => page.waitForFunction(() => {
+      const rows = [...document.querySelectorAll('.board-timeline__events li')];
+      return rows.some((row) => row.dataset.eventType === 'server-received')
+        && rows.some((row) => row.dataset.eventType === 'durable-persisted');
+    }, null, { timeout: 10_000 })));
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM board_updates WHERE board_id = ?').get(boardId).count > 0, true,
       'resuming server sync persists the peer edit and updates the VPS preview');
-    await alicePage.waitForFunction(() => window.__replicaEvents.some((entry) => entry.event?.type === 'durable-persisted'), null, { timeout: 5_000 });
-    const durableEvent = await alicePage.evaluate(() => window.__replicaEvents.find((entry) => entry.event?.type === 'durable-persisted'));
+    await bobPage.waitForFunction(() => window.__replicaEvents.some((entry) => entry.event?.type === 'durable-persisted'), null, { timeout: 5_000 });
+    const durableEvent = await bobPage.evaluate(() => window.__replicaEvents.filter((entry) => entry.event?.type === 'durable-persisted').at(-1));
     assert.equal(durableEvent.replicaId, 'vps');
     assert.equal(Number.isSafeInteger(durableEvent.event.sequence), true);
     assert.equal(typeof durableEvent.event.observedAt, 'string');
     assert.equal(typeof durableEvent.event.updateBytes, 'number');
     assert.equal(Object.hasOwn(durableEvent.event, 'update'), false);
+    const durableTimelineRow = bobPage.locator(`.board-timeline__events li[data-event-type="durable-persisted"][data-sequence="${durableEvent.event.sequence}"]`).last();
+    assert.equal(await durableTimelineRow.getAttribute('data-sequence'), String(durableEvent.event.sequence));
+    const durableTimelineText = await durableTimelineRow.textContent();
+    assert.match(durableTimelineText, /réplica vps/);
+    assert.ok(durableTimelineText.includes(durableEvent.event.observedAt));
   } finally {
     await aliceContext?.close();
     await bobContext?.close();

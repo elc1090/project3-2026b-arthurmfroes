@@ -61,6 +61,15 @@
       .replica-preview-card h4 { margin: 0 0 .4rem; font-size: .9rem; }
       .replica-preview-card canvas { display: block; width: 100%; height: auto; border: 1px solid #e2e8f0; }
       .replica-preview-caption { margin: .35rem 0 0; color: #475569; font-size: .8rem; }
+      #board-sync-status, #board-timeline { margin: 1rem 0; padding: 1rem; border: 1px solid #cbd5e1; border-radius: .75rem; background: #f8fafc; }
+      #board-sync-status h2, #board-timeline h2 { margin: 0 0 .5rem; font-size: 1.1rem; }
+      .board-sync-status__table { width: 100%; border-collapse: collapse; font-size: .84rem; }
+      .board-sync-status__table th, .board-sync-status__table td { padding: .45rem; text-align: left; border-bottom: 1px solid #cbd5e1; }
+      .board-sync-status__table tr[data-pending="true"] { background: #fff7ed; }
+      .board-sync-status__table td:first-child { max-width: 12rem; overflow-wrap: anywhere; font-family: ui-monospace, monospace; }
+      .board-timeline__events { display: grid; gap: .5rem; padding-left: 1.5rem; }
+      .board-timeline__events li { padding: .5rem; border: 1px solid #e2e8f0; border-radius: .5rem; background: white; }
+      .board-timeline__events p { margin: .2rem 0; }
       #board-image-picker { display: none; }
       #board-image-status { flex-basis: 100%; margin: 0; font-size: .9rem; }
       #board-canvas { display: block; width: 100%; max-width: 800px; height: auto; border: 1px solid #cbd5e1; background: white; touch-action: none; }
@@ -197,6 +206,8 @@
               <p id="replica-panel-status" role="status" aria-live="polite">Canal de diagnóstico desconectado.</p>
               <div id="replica-previews" aria-live="polite"></div>
             </section>
+            <div id="board-sync-status"></div>
+            <div id="board-timeline"></div>
               </div>
               <aside id="study-sidebar" hidden aria-label="Referência rápida para estudo">
                 <header><h3>Referência rápida</h3><button id="study-sidebar-close" type="button">Fechar</button></header>

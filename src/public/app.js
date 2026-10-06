@@ -1,4 +1,6 @@
 import { mountReplicaPanel } from './replica-panel.js';
+import { mountBoardTimelineUI } from './board-timeline-ui.js';
+import { mountBoardSyncStatusUI } from './board-sync-status-ui.js';
 
 const message = document.querySelector('#message');
 const loginForm = document.querySelector('#login-form');
@@ -21,9 +23,19 @@ let currentAccountId = null;
 let mountedBoard = null;
 let mountedStudyUI = null;
 let mountedReplicaPanel = null;
+let mountedTimeline = null;
+let mountedSyncStatusUI = null;
+let unobserveBoardEvents = [];
 let boardSession = null;
 
 async function closeCurrentBoard() {
+  for (const unsubscribe of unobserveBoardEvents) unsubscribe?.();
+  unobserveBoardEvents = [];
+  document.querySelector('#replica-panel')?.removeEventListener('replica-diagnostic-event', onReplicaDiagnosticEvent);
+  mountedTimeline?.destroy();
+  mountedTimeline = null;
+  mountedSyncStatusUI?.destroy();
+  mountedSyncStatusUI = null;
   mountedReplicaPanel?.destroy();
   mountedReplicaPanel = null;
   mountedStudyUI?.destroy();
@@ -33,6 +45,17 @@ async function closeCurrentBoard() {
   const session = boardSession;
   boardSession = null;
   if (session) await session.destroy();
+}
+
+function onReplicaDiagnosticEvent(event) {
+  const envelope = event.detail;
+  if (envelope?.type !== 'event' || !envelope.event || typeof envelope.event.type !== 'string') return;
+  const detail = {
+    ...envelope.event,
+    replicaId: envelope.event.replicaId ?? envelope.replicaId,
+  };
+  mountedTimeline?.appendEvent(detail.type, detail);
+  mountedSyncStatusUI?.appendEvent(detail.type, detail);
 }
 
 function showForm(mode) {
@@ -174,6 +197,15 @@ async function loadBoard(boardId) {
     mountedBoard,
   });
   mountedReplicaPanel = mountReplicaPanel({ boardId, session: boardSession });
+  mountedTimeline = mountBoardTimelineUI({ session: boardSession, container: document.querySelector('#board-timeline') });
+  mountedSyncStatusUI = mountBoardSyncStatusUI({ session: boardSession, container: document.querySelector('#board-sync-status') });
+  const replicaPanelRoot = document.querySelector('#replica-panel');
+  replicaPanelRoot.addEventListener('replica-diagnostic-event', onReplicaDiagnosticEvent);
+  for (const type of ['update-observed', 'sync-batch']) {
+    unobserveBoardEvents.push(boardSession.on(type, (detail) => {
+      mountedReplicaPanel?.publishEvent({ type, ...detail });
+    }));
+  }
   document.querySelector('#board-access-message').textContent = 'Quadro compartilhado aberto neste navegador.';
   document.querySelector('#board-workspace').hidden = false;
 }
