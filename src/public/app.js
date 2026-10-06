@@ -17,6 +17,15 @@ const membersPanel = document.querySelector('#members-panel');
 const membersList = document.querySelector('#board-members');
 let currentAccountId = null;
 let mountedBoard = null;
+let boardSession = null;
+
+async function closeCurrentBoard() {
+  mountedBoard?.destroy();
+  mountedBoard = null;
+  const session = boardSession;
+  boardSession = null;
+  if (session) await session.destroy();
+}
 
 function showForm(mode) {
   const registering = mode === 'register';
@@ -72,9 +81,8 @@ async function loadBoard(boardId) {
   catalogView.hidden = true;
   boardDetail.hidden = false;
   const { board } = await requestJson(`/api/boards/${encodeURIComponent(boardId)}`);
+  await closeCurrentBoard();
   document.querySelector('#board-title').textContent = board.title;
-  mountedBoard?.destroy();
-  mountedBoard = null;
   document.querySelector('#board-workspace').hidden = true;
   if (!board.isMember) {
     document.querySelector('#board-access-message').textContent = 'Este quadro existe, mas você ainda não é membro. O conteúdo não foi carregado.';
@@ -138,14 +146,15 @@ async function loadBoard(boardId) {
     pendingRequestsList.append(item);
   }
 
-  const result = await requestJson(`/api/boards/${encodeURIComponent(boardId)}/content`);
-  document.querySelector('#board-access-message').textContent = `${result.elements.length} elemento(s) no quadro.`;
-  const { mountBoardCanvas } = await import('/board.bundle.js');
+  const { mountBoardCanvas, openBoardSession } = await import('/board.bundle.js');
+  boardSession = await openBoardSession(boardId);
   mountedBoard = mountBoardCanvas({
+    boardId,
     canvas: document.querySelector('#board-canvas'),
     toolbar: document.querySelector('#board-toolbar'),
-    elements: result.elements,
+    doc: boardSession.doc,
   });
+  document.querySelector('#board-access-message').textContent = 'Quadro compartilhado aberto neste navegador.';
   document.querySelector('#board-workspace').hidden = false;
 }
 
@@ -225,8 +234,7 @@ document.querySelector('#logout-button').addEventListener('click', async () => {
     await postJson('/api/auth/logout', {});
     accountPanel.hidden = true;
     authPanel.hidden = false;
-    mountedBoard?.destroy();
-    mountedBoard = null;
+    await closeCurrentBoard();
     loginForm.reset();
     showForm('login');
   } catch (error) {

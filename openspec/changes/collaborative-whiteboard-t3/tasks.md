@@ -43,14 +43,14 @@ When multiple implementers share this uncommitted working tree, assign exclusive
 
 - [x] 4.1 Persist per-board binary updates and issue a durable acknowledgement only after storage commits; verify an acknowledged edit survives a process restart with no browsers online.
 - [x] 4.2 Add recoverable checkpoints and prune covered operational updates; verify restart and late-join reconstruction before and after pruning yield the same board state.
-- [ ] 4.3 Persist browser documents locally and reconcile them on reconnect; verify an edit made without network survives tab closure and appears on another authorized replica after reconnection.
+- [x] 4.3 Persist browser documents locally and reconcile them on reconnect; verify an edit made without network survives tab closure and appears on another authorized replica after reconnection.
 - [ ] 4.4 Expose local, peer-received, and durable-server statuses separately; verify a peer-visible edit is not marked persisted while the VPS path is paused.
 
 ## 5. Authenticated hybrid transport
 
 - [x] 5.1 Add authenticated server WebSocket synchronization per board; verify authorized clients exchange missing Yjs updates while different boards and nonmembers remain isolated.
 - [x] 5.2 Adapt private WebRTC signaling with membership and board-epoch checks; verify an unapproved or revoked account cannot subscribe or publish to a board topic.
-- [ ] 5.3 Connect `y-webrtc` and server synchronization to the same browser document; verify two separate browser profiles receive a direct edit while the server path is paused and converge again when it resumes.
+- [x] 5.3 Connect `y-webrtc` and server synchronization to the same browser document; verify two separate browser profiles receive a direct edit while the server path is paused and converge again when it resumes.
 - [ ] 5.4 On revocation, advance the board epoch and reconnect remaining members without the revoked peer; verify active honest peers close the old room and the revoked account cannot join the new one.
 - [ ] 5.5 Add ephemeral presence, P2P-only remote cursors, and throttled stroke/drag previews; verify cursors never traverse or persist on the VPS, live previews appear when their transport is available, and only completed actions enter the durable board state.
 

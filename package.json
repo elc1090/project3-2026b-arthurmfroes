@@ -9,7 +9,7 @@
   "scripts": {
     "prestart": "npm run build:client",
     "start": "node src/server/main.js",
-    "build:client": "esbuild src/public/board-entry.js --bundle --format=esm --outfile=src/public/board.bundle.js",
+    "build:client": "esbuild src/public/board-session-entry.js --bundle --format=esm --outfile=src/public/board.bundle.js",
     "smoke": "node --test test/foundation.smoke.test.js test/auth.smoke.test.js test/boards.smoke.test.js test/access-requests.test.js test/revocation.test.js test/signaling.test.js test/assets.test.js test/board-images.test.js"
   },
   "dependencies": {
@@ -17,10 +17,12 @@
     "better-sqlite3": "12.2.0",
     "ws": "8.22.0",
     "y-indexeddb": "9.0.12",
+    "y-webrtc": "10.3.0",
     "yjs": "13.6.27"
   },
   "devDependencies": {
     "esbuild": "0.25.9",
-    "fake-indexeddb": "6.2.5"
+    "fake-indexeddb": "6.2.5",
+    "playwright": "1.63.0"
   }
 }
