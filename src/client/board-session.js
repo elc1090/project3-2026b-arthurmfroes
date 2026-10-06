@@ -1,6 +1,7 @@
 import { WebrtcProvider } from 'y-webrtc';
 import { openOfflineBoard } from './offline-board.js';
 import { createServerSyncProvider } from './server-sync-provider.js';
+import { createSyncEventTracker } from './sync-event-tracker.js';
 
 const SIGNALING_RETRY_DELAYS_MS = [1_000, 2_000, 5_000, 10_000, 30_000];
 
@@ -40,12 +41,39 @@ export async function openBoardSession(boardId, {
     for (const listener of sessionListeners.get(type) ?? []) listener(detail);
   }
 
+  const eventTracker = createSyncEventTracker(boardId, { onEvent: emit });
+
   const serverSync = createServerSyncProvider(doc, boardId, {
     WebSocketImpl,
     locationHref,
     initialServerPaused,
     onEvent: emit,
+    eventTracker,
   });
+
+  function onDocumentUpdate(update, origin) {
+    if (origin === serverSync.origin || update.byteLength <= 2) return;
+    const fromPeerRoom = origin === peerProvider?.room;
+    const detail = {
+      sourcePath: fromPeerRoom ? 'peer-room' : 'local',
+      actionKind: fromPeerRoom
+        ? 'peer-update'
+        : origin?.description === 'canvas-local-action'
+          ? 'canvas-gesture'
+          : origin?.description === 'semantic-undo'
+            ? 'undo'
+            : 'yjs-update',
+      ...(fromPeerRoom ? {
+        directPeerConnectedAtObservation: [...(peerProvider?.room?.webrtcConns?.values() ?? [])]
+          .some((connection) => connection.connected === true),
+      } : {}),
+    };
+    const observation = fromPeerRoom && peerProvider?.room?.synced !== true
+      ? eventTracker.observeSyncBatch(update, { ...detail, state: 'peer-room-not-yet-synced' })
+      : eventTracker.observeUpdate(update, detail);
+    void observation.catch((error) => emit('error', error));
+  }
+  doc.on('update', onDocumentUpdate);
 
   function publishPeerState() {
     const room = peerProvider?.room;
@@ -248,6 +276,7 @@ export async function openBoardSession(boardId, {
       if (signalingRetry !== null) clearTimeout(signalingRetry);
       signalingRetry = null;
       serverSync.destroy();
+      doc.off('update', onDocumentUpdate);
       const activeProvider = peerProvider;
       peerProvider = null;
       if (activeProvider) disposePeerProvider(activeProvider);

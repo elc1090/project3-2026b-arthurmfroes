@@ -130,7 +130,11 @@ export async function createAppServer(options = {}) {
       response.writeHead(404).end();
     }
   });
-  attachBoardSync(server, { db, updateStore: boardUpdateStore });
+  attachBoardSync(server, {
+    db,
+    updateStore: boardUpdateStore,
+    onSyncEvent: options.onSyncEvent,
+  });
   server.signaling = attachSignaling(server, db, signalingState);
   notifyBoardEpochChanged = server.signaling.notifyBoardEpochChanged;
   return server;

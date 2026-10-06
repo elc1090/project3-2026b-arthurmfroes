@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import * as Y from 'yjs';
 import { getAuthenticatedSession } from './auth.js';
@@ -8,10 +9,27 @@ const MAX_MESSAGE_BYTES = 4 * 1024 * 1024;
 const MAX_UPDATE_BYTES = 3 * 1024 * 1024;
 
 /** Attach the authenticated per-board Yjs WebSocket endpoint to the app server. */
-export function attachBoardSync(server, { db, updateStore }) {
+export function attachBoardSync(server, { db, updateStore, onSyncEvent = () => {} }) {
   const webSockets = new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE_BYTES, perMessageDeflate: false });
   const replicas = new Map();
+  const replicaId = `vps:${randomUUID()}`;
+  let eventSequence = 0;
   let disposed = false;
+
+  function emitSyncEvent(type, detail) {
+    eventSequence += 1;
+    try {
+      onSyncEvent(type, {
+        boardId: detail.boardId,
+        replicaId,
+        sequence: eventSequence,
+        observedAt: new Date().toISOString(),
+        ...detail,
+      });
+    } catch {
+      // Diagnostics must not change persistence or acknowledgement behavior.
+    }
+  }
 
   server.on('upgrade', (request, socket, head) => {
     let url;
@@ -144,20 +162,39 @@ export function attachBoardSync(server, { db, updateStore }) {
     const replica = connection.replica;
 
     validateUpdate(replica.doc, bytes);
+    const actionId = updateDigest(bytes);
+    emitSyncEvent('server-received', {
+      boardId: connection.boardId,
+      actionId,
+      updateId: message.updateId,
+      updateBytes: bytes.byteLength,
+      sourcePath: 'client',
+      firstArrivalPath: 'client',
+    });
     const ack = updateStore.persistUpdate({
       updateId: message.updateId,
       boardId: connection.boardId,
       originAccountId: connection.accountId,
       bytes,
     });
+    emitSyncEvent('durable-persisted', {
+      boardId: ack.boardId,
+      actionId,
+      updateId: ack.updateId,
+      updateBytes: bytes.byteLength,
+      committedAt: ack.committedAt,
+      sourcePath: 'sqlite',
+      firstArrivalPath: 'client',
+    });
 
     // The store's ACK means bytes are committed; only then change the live replica.
     Y.applyUpdate(replica.doc, bytes, connection);
-    broadcastUpdate(connection, message.updateId, bytes);
+    broadcastUpdate(connection, message.updateId, actionId, bytes);
     sendJson(connection.ws, {
       type: 'durable-ack',
       boardId: ack.boardId,
       updateId: ack.updateId,
+      actionId,
       committedAt: ack.committedAt,
     });
   }
@@ -172,10 +209,11 @@ export function attachBoardSync(server, { db, updateStore }) {
     }
   }
 
-  function broadcastUpdate(sender, updateId, bytes) {
+  function broadcastUpdate(sender, updateId, actionId, bytes) {
     const payload = {
       type: 'update',
       updateId,
+      actionId,
       update: encodeBytes(bytes),
     };
     const serialized = JSON.stringify(payload);
@@ -194,6 +232,10 @@ export function attachBoardSync(server, { db, updateStore }) {
     replicas.clear();
     webSockets.close();
   }
+}
+
+function updateDigest(bytes) {
+  return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 }
 
 function sendJson(ws, message) {

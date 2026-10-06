@@ -24,9 +24,14 @@ const fixtureHtml = `<!doctype html>
     const initialServerPaused = new URL(location.href).searchParams.get('pauseServerSync') === 'true';
     const initialPeerPaused = new URL(location.href).searchParams.get('pausePeerSync') === 'true';
     window.__durableAcks = [];
+    window.__syncEvents = [];
     window.__sessionErrors = [];
     try {
-      window.__session = await openBoardSession(boardId, { initialServerPaused, initialPeerPaused });
+      window.__session = await openBoardSession(boardId, {
+        initialServerPaused,
+        initialPeerPaused,
+        onEvent: (type, detail) => window.__syncEvents.push({ type, detail }),
+      });
       window.__session.on('durable-ack', ack => window.__durableAcks.push(ack));
       window.__session.on('error', error => window.__sessionErrors.push(String(error)));
       window.__canvas = mountBoardCanvas({
@@ -166,6 +171,16 @@ test('two isolated Chrome profiles exchange through WebRTC with board WS paused,
     await drawRectangle(alicePage, 30, 40);
     await waitForElementCount(alicePage, 1);
     await bobPage.waitForFunction(() => window.__session.doc.getMap('elements').size === 1, null, { timeout: 15_000 });
+    await Promise.all([
+      alicePage.waitForFunction(() => window.__syncEvents.some(({ type, detail }) => type === 'update-observed' && detail.sourcePath === 'local' && detail.actionKind === 'canvas-gesture')),
+      bobPage.waitForFunction(() => window.__syncEvents.some(({ type, detail }) => type === 'update-observed' && detail.sourcePath === 'peer-room')),
+    ]);
+    const aliceLocalUpdate = await alicePage.evaluate(() => window.__syncEvents.find(({ type, detail }) => type === 'update-observed' && detail.sourcePath === 'local' && detail.actionKind === 'canvas-gesture').detail);
+    const bobPeerUpdate = await bobPage.evaluate(() => window.__syncEvents.find(({ type, detail }) => type === 'update-observed' && detail.sourcePath === 'peer-room').detail);
+    assert.match(aliceLocalUpdate.actionId, /^sha256:[0-9a-f]{64}$/);
+    assert.equal(aliceLocalUpdate.updateBytes > 0, true);
+    assert.equal(bobPeerUpdate.firstArrivalPath, 'peer-room');
+    assert.equal(bobPeerUpdate.directPeerConnectedAtObservation, true);
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM board_updates WHERE board_id = ?').get(boardId).count, 0,
       'the VPS sync path must stay paused while the peer receives the edit');
     assert.equal(await alicePage.evaluate(() => window.__durableAcks.length), 0,
@@ -225,6 +240,10 @@ test('two isolated Chrome profiles exchange through WebRTC with board WS paused,
     }
     const durableAcks = await Promise.all([alicePage, bobPage].map((page) => page.evaluate(() => window.__durableAcks)));
     assert.equal(durableAcks.some((acks) => acks.length > 0 && acks.every((ack) => Boolean(ack.committedAt))), true);
+    const ackEvents = await Promise.all([alicePage, bobPage].map((page) => page.evaluate(
+      () => window.__syncEvents.filter(({ type }) => type === 'durable-ack').map(({ detail }) => detail),
+    )));
+    assert.equal(ackEvents.flat().some((ack) => /^sha256:[0-9a-f]{64}$/.test(ack.actionId)), true);
 
     const recovered = createBoardUpdateStore(db).loadDocument(boardId);
     try {

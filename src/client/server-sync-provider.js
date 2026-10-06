@@ -10,6 +10,7 @@ export function createServerSyncProvider(doc, boardId, {
   locationHref = globalThis.location?.href,
   initialServerPaused = false,
   onEvent = () => {},
+  eventTracker = null,
 } = {}) {
   if (!doc || typeof doc.on !== 'function') throw new TypeError('A Y.Doc is required');
   if (typeof boardId !== 'string' || boardId.length === 0) throw new TypeError('boardId must be a non-empty string');
@@ -45,14 +46,14 @@ export function createServerSyncProvider(doc, boardId, {
       onEvent('error', new RangeError('A board update exceeds the server sync limit'));
       return false;
     }
-    pending.set(updateId, bytes);
+    pending.set(updateId, { bytes });
     return sendJson({ type: 'update', updateId, update: encodeBytes(bytes) });
   }
 
   function queueDocumentUpdate(bytes) {
     if (bytes.byteLength <= 2) return;
     const updateId = createUpdateId();
-    pending.set(updateId, bytes);
+    pending.set(updateId, { bytes });
     if (syncReady) sendUpdate(updateId, bytes);
   }
 
@@ -73,9 +74,14 @@ export function createServerSyncProvider(doc, boardId, {
     if (message.type === 'sync') {
       try {
         const serverVector = decodeBytes(message.stateVector);
-        Y.applyUpdate(doc, decodeBytes(message.update), SERVER_ORIGIN);
-        for (const [updateId, bytes] of pending) {
-          if (!sendUpdate(updateId, bytes)) break;
+        const serverUpdate = decodeBytes(message.update);
+        if (serverUpdate.byteLength > 2 && eventTracker) {
+          void eventTracker.observeSyncBatch(serverUpdate, { state: 'initial-server-diff' })
+            .catch((error) => onEvent('error', error));
+        }
+        Y.applyUpdate(doc, serverUpdate, SERVER_ORIGIN);
+        for (const [updateId, pendingUpdate] of pending) {
+          if (!sendUpdate(updateId, pendingUpdate.bytes)) break;
         }
         const localDiff = Y.encodeStateAsUpdate(doc, serverVector);
         if (localDiff.byteLength > 2) {
@@ -94,7 +100,15 @@ export function createServerSyncProvider(doc, boardId, {
 
     if (message.type === 'update') {
       try {
-        Y.applyUpdate(doc, decodeBytes(message.update), SERVER_ORIGIN);
+        const update = decodeBytes(message.update);
+        if (update.byteLength > 2 && eventTracker) {
+          void eventTracker.observeUpdate(update, {
+            sourcePath: 'server',
+            serverUpdateId: message.updateId,
+            actionKind: 'server-update',
+          }).catch((error) => onEvent('error', error));
+        }
+        Y.applyUpdate(doc, update, SERVER_ORIGIN);
       } catch (error) {
         onEvent('error', error);
       }
@@ -103,7 +117,10 @@ export function createServerSyncProvider(doc, boardId, {
 
     if (message.type === 'durable-ack') {
       pending.delete(message.updateId);
-      onEvent('durable-ack', message);
+      const ack = eventTracker
+        ? eventTracker.emit('durable-ack', { ...message, sourcePath: 'server' })
+        : message;
+      onEvent('durable-ack', ack);
       return;
     }
 
@@ -157,6 +174,7 @@ export function createServerSyncProvider(doc, boardId, {
 
   return Object.freeze({
     get status() { return currentStatus; },
+    origin: SERVER_ORIGIN,
     pause() {
       if (destroyed || paused) return;
       paused = true;

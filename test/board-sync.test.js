@@ -131,6 +131,7 @@ test('authorized members exchange updates, reject revoked recipients, and recove
   addMember.run(boardB, charlie.accountId);
 
   const persistedUpdateIds = new Set();
+  const syncEvents = [];
   const baseStore = createBoardUpdateStore(db);
   const updateStore = {
     ...baseStore,
@@ -141,7 +142,11 @@ test('authorized members exchange updates, reject revoked recipients, and recove
       return ack;
     },
   };
-  let server = await createAppServer({ db, boardUpdateStore: updateStore });
+  let server = await createAppServer({
+    db,
+    boardUpdateStore: updateStore,
+    onSyncEvent: (type, detail) => syncEvents.push({ type, detail }),
+  });
   const clients = [];
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -173,6 +178,15 @@ test('authorized members exchange updates, reject revoked recipients, and recove
     const ack = await aliceReader.next((message) => message.type === 'durable-ack' && message.updateId === updateId);
     assert.equal(persistedUpdateIds.has(updateId), true, 'the store must commit before the server emits its ACK');
     assert.equal(ack.boardId, boardA);
+    assert.match(ack.actionId, /^sha256:[0-9a-f]{64}$/);
+    const receivedEvent = syncEvents.find(({ type, detail }) => type === 'server-received' && detail.updateId === updateId);
+    const persistedEvent = syncEvents.find(({ type, detail }) => type === 'durable-persisted' && detail.updateId === updateId);
+    assert.ok(receivedEvent);
+    assert.ok(persistedEvent);
+    assert.equal(receivedEvent.detail.actionId, ack.actionId);
+    assert.equal(persistedEvent.detail.actionId, ack.actionId);
+    assert.ok(receivedEvent.detail.sequence < persistedEvent.detail.sequence);
+    assert.equal(Object.hasOwn(persistedEvent.detail, 'bytes'), false, 'diagnostics must not expose update bytes');
     const broadcast = await beatriceReader.next((message) => message.type === 'update' && message.updateId === updateId);
     Y.applyUpdate(beatriceDoc, decode(broadcast.update));
     assert.deepEqual(beatriceDoc.getMap('board').get('element'), { label: 'shared edit' });
