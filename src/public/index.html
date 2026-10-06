@@ -49,6 +49,18 @@
       #study-question-list { display: grid; gap: .4rem; }
       .study-question-button { text-align: left; background: white; color: #1e3a8a; border: 1px solid #bfdbfe; }
       #study-status { min-height: 1.3rem; margin: .4rem 0; color: #334155; }
+      #replica-panel { margin: 1rem 0; padding: 1rem; border: 1px solid #cbd5e1; border-radius: .75rem; background: #f8fafc; }
+      #replica-panel header, #replica-transport-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem; }
+      #replica-panel header h3 { margin: 0; }
+      #replica-transport-controls { justify-content: flex-start; margin: .75rem 0; }
+      #replica-transport-controls button { width: auto; }
+      #replica-local-state, #replica-server-state, #replica-peer-state { margin: .25rem 0; }
+      #replica-panel-status { margin: .5rem 0; color: #475569; font-size: .88rem; }
+      #replica-previews { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: .6rem; }
+      .replica-preview-card { min-width: 0; padding: .65rem; border: 1px solid #cbd5e1; border-radius: .6rem; background: white; }
+      .replica-preview-card h4 { margin: 0 0 .4rem; font-size: .9rem; }
+      .replica-preview-card canvas { display: block; width: 100%; height: auto; border: 1px solid #e2e8f0; }
+      .replica-preview-caption { margin: .35rem 0 0; color: #475569; font-size: .8rem; }
       #board-image-picker { display: none; }
       #board-image-status { flex-basis: 100%; margin: 0; font-size: .9rem; }
       #board-canvas { display: block; width: 100%; max-width: 800px; height: auto; border: 1px solid #cbd5e1; background: white; touch-action: none; }
@@ -168,6 +180,23 @@
               <p id="board-image-status" data-board-image-status role="status" aria-live="polite"></p>
             </div>
             <canvas id="board-canvas" width="800" height="480" aria-label="Canvas compartilhado"></canvas>
+            <section id="replica-panel" aria-label="Painel de réplicas">
+              <header>
+                <h3>Réplicas do quadro</h3>
+                <small>Prévias diagnósticas efêmeras; não são confirmação de persistência.</small>
+              </header>
+              <p id="replica-local-state">Estado local: ativo</p>
+              <p id="replica-server-state">VPS: conectando</p>
+              <p id="replica-peer-state">P2P: conectando</p>
+              <div id="replica-transport-controls" aria-label="Controles independentes de transporte">
+                <button id="replica-pause-server" type="button">Pausar VPS</button>
+                <button id="replica-resume-server" type="button">Retomar VPS</button>
+                <button id="replica-pause-peer" type="button">Pausar P2P</button>
+                <button id="replica-resume-peer" type="button">Retomar P2P</button>
+              </div>
+              <p id="replica-panel-status" role="status" aria-live="polite">Canal de diagnóstico desconectado.</p>
+              <div id="replica-previews" aria-live="polite"></div>
+            </section>
               </div>
               <aside id="study-sidebar" hidden aria-label="Referência rápida para estudo">
                 <header><h3>Referência rápida</h3><button id="study-sidebar-close" type="button">Fechar</button></header>

@@ -10,6 +10,7 @@ import { attachBoardSync } from './board-sync.js';
 import { attachSignaling, createSignalingState, handleSignalingHttpRequest } from './signaling.js';
 import { handleAssetRequest } from './assets.js';
 import { handleStudyFeatureRequest } from './study-features.js';
+import { attachReplicaDiagnostics } from './replica-diagnostics.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
@@ -133,10 +134,15 @@ export async function createAppServer(options = {}) {
       response.writeHead(404).end();
     }
   });
+  const replicaDiagnostics = attachReplicaDiagnostics(server, { db, updateStore: boardUpdateStore });
+  server.replicaDiagnostics = replicaDiagnostics;
   attachBoardSync(server, {
     db,
     updateStore: boardUpdateStore,
-    onSyncEvent: options.onSyncEvent,
+    onSyncEvent: (type, detail) => {
+      options.onSyncEvent?.(type, detail);
+      replicaDiagnostics.publishServerEvent(detail.boardId, type, detail);
+    },
   });
   server.signaling = attachSignaling(server, db, signalingState);
   notifyBoardEpochChanged = server.signaling.notifyBoardEpochChanged;

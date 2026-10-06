@@ -1,3 +1,5 @@
+import { mountReplicaPanel } from './replica-panel.js';
+
 const message = document.querySelector('#message');
 const loginForm = document.querySelector('#login-form');
 const registerForm = document.querySelector('#register-form');
@@ -18,9 +20,12 @@ const membersList = document.querySelector('#board-members');
 let currentAccountId = null;
 let mountedBoard = null;
 let mountedStudyUI = null;
+let mountedReplicaPanel = null;
 let boardSession = null;
 
 async function closeCurrentBoard() {
+  mountedReplicaPanel?.destroy();
+  mountedReplicaPanel = null;
   mountedStudyUI?.destroy();
   mountedStudyUI = null;
   mountedBoard?.destroy();
@@ -159,6 +164,8 @@ async function loadBoard(boardId) {
     canvas: document.querySelector('#board-canvas'),
     toolbar: document.querySelector('#board-toolbar'),
     doc: boardSession.doc,
+    boardSession,
+    displayName: document.querySelector('#account-name').textContent,
     onSaveBoardImage: () => mountedStudyUI?.saveManualBoardImage(),
   });
   mountedStudyUI = mountBoardStudyUI({
@@ -166,6 +173,7 @@ async function loadBoard(boardId) {
     canvas: document.querySelector('#board-canvas'),
     mountedBoard,
   });
+  mountedReplicaPanel = mountReplicaPanel({ boardId, session: boardSession });
   document.querySelector('#board-access-message').textContent = 'Quadro compartilhado aberto neste navegador.';
   document.querySelector('#board-workspace').hidden = false;
 }
