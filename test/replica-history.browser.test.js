@@ -141,6 +141,7 @@ test('local canvas edit refreshes history while VPS sync is paused and no other 
     await page.waitForFunction((id) => [...document.querySelectorAll('#replica-history [data-history-snapshots] [data-snapshot-id]')]
       .some((row) => row.textContent.includes(id)), localReplicaId, { timeout: 10_000 });
     const beforeCount = await localSnapshotRows.count();
+    const beforeEventId = db.prepare('SELECT COALESCE(MAX(id), 0) AS id FROM inspection_events WHERE board_id=?').get(boardId).id;
 
     const canvas = page.locator('#board-canvas');
     await canvas.scrollIntoViewIfNeeded();
@@ -173,8 +174,10 @@ test('local canvas edit refreshes history while VPS sync is paused and no other 
       throw new Error(`Local snapshot did not appear: ${JSON.stringify({ localReplicaId, beforeCount, state, stored: stored.map((row) => ({ ...row, projection_json: row.projection_json.slice(0, 160) })), pageErrors })}`, { cause: error });
     }
 
-    assert.equal(await page.locator('#replica-history [data-history-events] [data-event-id]').count(), 0,
-      'this page has no peer or VPS event to trigger the refresh');
+    const newEvents = db.prepare('SELECT replica_id, event_json FROM inspection_events WHERE board_id=? AND id>?').all(boardId, beforeEventId);
+    assert.ok(newEvents.every((row) => row.replica_id === localReplicaId
+      && JSON.parse(row.event_json).type === 'update-observed'),
+    'the local snapshot refresh does not depend on a new peer or VPS event');
     assert.equal(await page.locator('.replica-preview-card[data-replica-id^="peer:"]').count(), 0,
       'there is no second peer in the diagnostics room');
     assert.equal(await page.locator('.replica-preview-card[data-replica-id="vps"]').getAttribute('data-element-count'), '0',
