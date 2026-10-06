@@ -2,7 +2,10 @@ import * as Y from 'yjs';
 import { addElement } from '../shared/board-model.js';
 import { bindBoardCanvas } from './board-canvas.js';
 
-/** Create one browser-owned document and seed the authorized server snapshot. */
+/**
+ * Temporary snapshot adapter for the current UI. A sync provider should instead
+ * supply its restored board Y.Doc directly to `mountBoardCanvas`.
+ */
 export function createBoardDocument(elements = []) {
   const doc = new Y.Doc();
   doc.transact(() => {
@@ -19,9 +22,13 @@ export function createBoardDocument(elements = []) {
   return doc;
 }
 
-/** Mount the current minimal Canvas tools around a shared board document. */
-export function mountBoardCanvas({ canvas, toolbar, elements = [] }) {
-  const doc = createBoardDocument(elements);
+/**
+ * Mount the minimal tools around a board document. `doc` is borrowed when
+ * supplied by IndexedDB or a sync provider, and remains owned by that caller.
+ */
+export function mountBoardCanvas({ canvas, toolbar, doc: suppliedDoc, elements = [] }) {
+  const ownsDoc = !suppliedDoc;
+  const doc = suppliedDoc ?? createBoardDocument(elements);
   let tool = 'select';
   const buttons = [...toolbar.querySelectorAll('[data-board-tool]')];
   const buttonListeners = [];
@@ -41,7 +48,7 @@ export function mountBoardCanvas({ canvas, toolbar, elements = [] }) {
     destroy() {
       binding.destroy();
       for (const [button, listener] of buttonListeners) button.removeEventListener('click', listener);
-      doc.destroy();
+      if (ownsDoc) doc.destroy();
     },
   };
 }

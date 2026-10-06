@@ -3,13 +3,19 @@ import assert from 'node:assert/strict';
 import * as Y from 'yjs';
 import { addElement, readBoardElements } from '../src/shared/board-model.js';
 import { bindBoardCanvas, CANVAS_ORIGIN } from '../src/public/board-canvas.js';
-import { createBoardDocument } from '../src/public/board-entry.js';
+import { createBoardDocument, mountBoardCanvas } from '../src/public/board-entry.js';
 
 class FakeCanvas {
   width = 800;
   height = 480;
   listeners = new Map();
-  context = { clearRect() {} };
+  context = {
+    clearCount: 0,
+    strokeRects: [],
+    clearRect() { this.clearCount += 1; },
+    strokeRect(...geometry) { this.strokeRects.push(geometry); },
+    fillRect() {},
+  };
 
   getContext() { return this.context; }
   getBoundingClientRect() { return { left: 0, top: 0 }; }
@@ -42,7 +48,8 @@ test('Canvas creates and moves model elements with one local transaction per com
 
   canvas.dispatch('pointerdown', { clientX: 10, clientY: 20 });
   canvas.dispatch('pointerup', { clientX: 70, clientY: 80 });
-  assert.deepEqual(readBoardElements(doc).map(({ id, geometry }) => ({ id, geometry })), [{
+  assert.deepEqual(readBoardElements(doc).map(({ id, type, geometry }) => ({ id, type, geometry })), [{
+    type: 'rect',
     id: 'local-1', geometry: { x: 10, y: 20, width: 60, height: 60 },
   }]);
   assert.equal(localOrigins.length, 1);
@@ -92,15 +99,44 @@ test('a remote Yjs update renders once and never creates a Canvas-origin update'
 
 test('the browser entry seeds an independent document from the authorized snapshot', () => {
   const doc = createBoardDocument([{
-    id: 'snapshot-rect', type: 'rectangle',
+    id: 'snapshot-rect', type: 'rect',
     geometry: { x: 8, y: 12, width: 22, height: 18 },
     style: { color: '#123456' }, data: { source: 'snapshot' },
   }]);
 
   assert.deepEqual(readBoardElements(doc), [{
-    id: 'snapshot-rect', type: 'rectangle',
+    id: 'snapshot-rect', type: 'rect',
     geometry: { x: 8, y: 12, width: 22, height: 18 },
     style: { color: '#123456' }, data: { source: 'snapshot' },
   }]);
   doc.destroy();
+});
+
+test('mount uses a provider-owned Y.Doc, renders its remote rect, and leaves its lifecycle to the caller', () => {
+  const doc = new Y.Doc();
+  const remoteDoc = new Y.Doc();
+  const canvas = new FakeCanvas();
+  const toolbar = { querySelectorAll: () => [] };
+  const mounted = mountBoardCanvas({ canvas, toolbar, doc });
+  assert.equal(mounted.doc, doc);
+  const rendersBeforeRemote = canvas.context.clearCount;
+  addElement(remoteDoc, {
+    id: 'provider-remote-rect', type: 'rect',
+    geometry: { x: 4, y: 6, width: 30, height: 20 },
+  });
+
+  Y.applyUpdate(doc, Y.encodeStateAsUpdate(remoteDoc), 'provider-remote');
+
+  assert.equal(canvas.context.clearCount, rendersBeforeRemote + 1);
+  assert.deepEqual(canvas.context.strokeRects, [[4, 6, 30, 20]]);
+  mounted.destroy();
+  const rendersAfterDestroy = canvas.context.clearCount;
+  addElement(doc, {
+    id: 'still-provider-owned', type: 'rect',
+    geometry: { x: 0, y: 0, width: 1, height: 1 },
+  });
+  assert.equal(readBoardElements(doc).length, 2);
+  assert.equal(canvas.context.clearCount, rendersAfterDestroy);
+  doc.destroy();
+  remoteDoc.destroy();
 });

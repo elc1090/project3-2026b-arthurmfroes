@@ -8,7 +8,7 @@ import {
 export const CANVAS_ORIGIN = Symbol('canvas-local-action');
 
 function defaultDraw(context, element) {
-  if (element.type !== 'rectangle') return;
+  if (element.type !== 'rect') return;
   const { x, y, width, height } = element.geometry;
   context.fillStyle = element.style.fill ?? 'transparent';
   context.strokeStyle = element.style.color ?? '#0f172a';
@@ -18,7 +18,7 @@ function defaultDraw(context, element) {
 }
 
 function contains(element, point) {
-  if (element.type !== 'rectangle') return false;
+  if (element.type !== 'rect') return false;
   const { x, y, width, height } = element.geometry;
   return point.x >= x && point.x <= x + width && point.y >= y && point.y <= y + height;
 }
@@ -90,7 +90,7 @@ export function bindBoardCanvas({
       if (geometry.width === 0 || geometry.height === 0) return;
       const style = getStyle();
       doc.transact(() => addElement(doc, {
-        id: idFactory(), type: 'rectangle', geometry, style,
+        id: idFactory(), type: 'rect', geometry, style,
       }), CANVAS_ORIGIN);
       return;
     }
