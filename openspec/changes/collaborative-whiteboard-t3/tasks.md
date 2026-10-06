@@ -52,7 +52,7 @@ When multiple implementers share this uncommitted working tree, assign exclusive
 - [x] 5.2 Adapt private WebRTC signaling with membership and board-epoch checks; verify an unapproved or revoked account cannot subscribe or publish to a board topic.
 - [x] 5.3 Connect `y-webrtc` and server synchronization to the same browser document; verify two separate browser profiles receive a direct edit while the server path is paused and converge again when it resumes.
 - [x] 5.4 On revocation, advance the board epoch and reconnect remaining members without the revoked peer; verify active honest peers close the old room and the revoked account cannot join the new one.
-- [ ] 5.5 Add ephemeral presence, P2P-only remote cursors, and throttled stroke/drag previews; verify cursors never traverse or persist on the VPS, live previews appear when their transport is available, and only completed actions enter the durable board state.
+- [x] 5.5 Add ephemeral presence, P2P-only remote cursors, and throttled stroke/drag previews; verify cursors never traverse or persist on the VPS, live previews appear when their transport is available, and only completed actions enter the durable board state.
 
 ## 6. Images and original product behavior
 
@@ -64,7 +64,7 @@ When multiple implementers share this uncommitted working tree, assign exclusive
 ## 7. Observability and bounded history
 
 - [ ] 7.1 Capture action IDs, per-replica first arrival path, update size, and durable acknowledgement events; verify the timeline distinguishes local edit, P2P receipt, server receipt, and persistence without claiming a global event order.
-- [ ] 7.2 Build compact board previews for each participating replica and the VPS, plus independent server/P2P pause and resume controls; verify a paused server replica visibly differs from two peers that continue editing together.
+- [x] 7.2 Build compact board previews for each participating replica and the VPS, plus independent server/P2P pause and resume controls; verify a paused server replica visibly differs from two peers that continue editing together.
 - [ ] 7.3 Retain a bounded set of inspectable board checkpoints and event records with a visual object-state diff; verify old inspection entries expire while a new peer still reconstructs the latest board.
 - [ ] 7.4 Record bytes, update counts, and convergence timing for hybrid and server-only modes; verify the same scripted edit sequence produces an exportable comparison for both modes.
 
