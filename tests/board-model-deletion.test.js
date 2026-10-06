@@ -79,6 +79,37 @@ test('a concurrent delete stays deleted when another replica changes color and g
   assert.deepEqual(readBoardElements(forward), readBoardElements(reversed));
 });
 
+test('erasing away from single-point and multi-point strokes is a no-op', () => {
+  const doc = newDoc(205);
+  addElement(doc, {
+    id: 'single-point',
+    type: 'path',
+    geometry: { points: [{ x: 20, y: 30 }] },
+    style: { tool: 'pen', color: '#000000', strokeWidth: 2 },
+  });
+  addElement(doc, {
+    id: 'distant-stroke',
+    type: 'path',
+    geometry: { points: [{ x: 100, y: 100 }, { x: 120, y: 110 }, { x: 140, y: 100 }] },
+    style: { tool: 'pen', color: '#ff0000', strokeWidth: 2 },
+  });
+  const original = readBoardElements(doc);
+  let updateCount = 0;
+  doc.on('update', () => updateCount++);
+
+  const result = eraseBoardAt(doc, {
+    x: 0,
+    y: 0,
+    radius: 2,
+    createId: () => { throw new Error('an untouched stroke must not allocate replacement IDs'); },
+  });
+
+  assert.deepEqual(result, { deletedIds: [], createdIds: [] });
+  assert.deepEqual(readBoardElements(doc), original);
+  assert.deepEqual(readBoardElements(doc).map(({ id }) => id), ['single-point', 'distant-stroke']);
+  assert.equal(updateCount, 0, 'a no-op eraser gesture must not emit a Yjs update');
+});
+
 test('erasing a segment that crosses the circle tombstones it and inserts visible runs atomically, leaving images intact', () => {
   const doc = newDoc(200);
   addElement(doc, {

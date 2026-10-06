@@ -170,6 +170,16 @@ function distanceSquared(point, center) {
   return dx * dx + dy * dy;
 }
 
+function segmentEntersCircle(a, b, center, radiusSquared) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const lengthSquared = dx * dx + dy * dy;
+  if (lengthSquared < 1e-9) return distanceSquared(a, center) < radiusSquared;
+  const projection = ((center.x - a.x) * dx + (center.y - a.y) * dy) / lengthSquared;
+  const t = Math.max(0, Math.min(1, projection));
+  return distanceSquared(pointOnSegment(a, b, t), center) < radiusSquared;
+}
+
 /**
  * Return the visible polyline runs after removing the portions strictly inside
  * a circle. Intersections are calculated analytically for every segment, so a
@@ -194,9 +204,13 @@ export function clipStrokePoints(points, center, radius) {
   if (points.length === 0) return [];
 
   const radiusSquared = radius * radius;
+  const intersects = points.length === 1
+    ? distanceSquared(points[0], center) < radiusSquared
+    : points.slice(1).some((point, index) => segmentEntersCircle(points[index], point, center, radiusSquared));
+  if (!intersects) return [points.map(point => ({ ...point }))];
+
   if (points.length === 1) {
-    if (distanceSquared(points[0], center) < radiusSquared) return [];
-    return [[{ ...points[0] }, { x: points[0].x + 0.1, y: points[0].y + 0.1 }]];
+    return [];
   }
 
   const runs = [];
