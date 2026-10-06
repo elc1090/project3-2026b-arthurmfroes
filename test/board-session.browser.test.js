@@ -181,6 +181,14 @@ test('two isolated Chrome profiles exchange through WebRTC with board WS paused,
     assert.equal(aliceLocalUpdate.updateBytes > 0, true);
     assert.equal(bobPeerUpdate.firstArrivalPath, 'peer-room');
     assert.equal(bobPeerUpdate.directPeerConnectedAtObservation, true);
+    const aliceProjected = await alicePage.evaluate((actionId) => window.__session.syncStatus.actions.find((action) => action.actionId === actionId), aliceLocalUpdate.actionId);
+    const bobProjected = await bobPage.evaluate((actionId) => window.__session.syncStatus.actions.find((action) => action.actionId === actionId), bobPeerUpdate.actionId);
+    assert.equal(aliceProjected.local, true);
+    assert.equal(aliceProjected.durableServer, false);
+    assert.equal(bobProjected.peerReceived, true);
+    assert.equal(bobProjected.durableServer, false, 'P2P visibility must not imply server persistence');
+    assert.equal(await bobPage.evaluate(() => window.__syncEvents.some(({ type }) => type === 'sync-status')), true,
+      'the session publishes status projection changes for a future UI consumer');
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM board_updates WHERE board_id = ?').get(boardId).count, 0,
       'the VPS sync path must stay paused while the peer receives the edit');
     assert.equal(await alicePage.evaluate(() => window.__durableAcks.length), 0,

@@ -1,5 +1,6 @@
 import { WebrtcProvider } from 'y-webrtc';
 import { openOfflineBoard } from './offline-board.js';
+import { createBoardSyncStatus } from './board-sync-status.js';
 import { createServerSyncProvider } from './server-sync-provider.js';
 import { createSyncEventTracker } from './sync-event-tracker.js';
 
@@ -35,10 +36,17 @@ export async function openBoardSession(boardId, {
   let peerConnectGeneration = 0;
   const sessionListeners = new Map();
   const signalingListenerCleanups = new WeakMap();
+  const syncStatus = createBoardSyncStatus(boardId);
 
-  function emit(type, detail) {
+  function dispatch(type, detail) {
     onEvent(type, detail);
     for (const listener of sessionListeners.get(type) ?? []) listener(detail);
+  }
+
+  function emit(type, detail) {
+    dispatch(type, detail);
+    const snapshot = syncStatus.apply(type, detail);
+    if (snapshot) dispatch('sync-status', snapshot);
   }
 
   const eventTracker = createSyncEventTracker(boardId, { onEvent: emit });
@@ -242,6 +250,7 @@ export async function openBoardSession(boardId, {
     ready: Promise.resolve(doc),
     get serverStatus() { return serverSync.status; },
     get p2pStatus() { return { ...peerState }; },
+    get syncStatus() { return syncStatus.getSnapshot(); },
     get p2pPeerCount() {
       return [...(peerProvider?.room?.webrtcConns?.values() ?? [])].filter((connection) => connection.connected).length;
     },
@@ -269,6 +278,7 @@ export async function openBoardSession(boardId, {
       sessionListeners.get(type).add(listener);
       return () => sessionListeners.get(type)?.delete(listener);
     },
+    subscribeSyncStatus(listener) { return syncStatus.subscribe(listener); },
     destroy() {
       if (destroyPromise) return destroyPromise;
       destroyed = true;
