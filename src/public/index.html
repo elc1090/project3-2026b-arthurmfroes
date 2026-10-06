@@ -22,6 +22,10 @@
       #board-members li { margin: .55rem 0; }
       #board-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin: .75rem 0; }
       #board-toolbar button { width: auto; }
+      #board-toolbar [aria-pressed="true"] { outline: 2px solid #0f172a; outline-offset: 2px; }
+      #board-toolbar .tool-group { display: flex; flex-wrap: wrap; gap: .35rem; padding: .35rem; border: 1px solid #e2e8f0; border-radius: .6rem; }
+      #board-toolbar .swatch { width: 2rem; height: 2rem; padding: 0; border: 2px solid #cbd5e1; }
+      #board-toolbar .swatch[data-board-color="#ffffff"] { border-color: #64748b; }
       #board-image-picker { display: none; }
       #board-image-status { flex-basis: 100%; margin: 0; font-size: .9rem; }
       #board-canvas { display: block; width: 100%; max-width: 800px; height: auto; border: 1px solid #cbd5e1; background: white; touch-action: none; }
@@ -75,10 +79,35 @@
           </section>
           <div id="board-workspace" hidden>
             <div id="board-toolbar" aria-label="Ferramentas do quadro">
-              <button type="button" data-board-tool="select" aria-pressed="true">Selecionar / mover</button>
-              <button type="button" data-board-tool="rectangle" aria-pressed="false">Retângulo</button>
-              <button type="button" data-board-tool="delete" aria-pressed="false">Apagar</button>
-              <button type="button" data-board-tool="eraser" aria-pressed="false">Borracha</button>
+              <button type="button" data-board-tool="select" aria-pressed="true" title="Selecionar / mover (S)">Selecionar / mover</button>
+              <button type="button" data-board-tool="pen" aria-pressed="false" title="Caneta (P)">Caneta</button>
+              <button type="button" data-board-tool="highlighter" aria-pressed="false" title="Marca-texto (H)">Marca-texto</button>
+              <button type="button" data-board-tool="line" aria-pressed="false" title="Linha (L)">Linha</button>
+              <button type="button" data-board-tool="arrow" aria-pressed="false" title="Seta (A)">Seta</button>
+              <button type="button" data-board-tool="rectangle" aria-pressed="false" title="Retângulo (R)">Retângulo</button>
+              <button type="button" data-board-tool="mux" aria-pressed="false" title="MUX (M)">MUX</button>
+              <button type="button" data-board-tool="alu" aria-pressed="false" title="ULA / ALU (U)">ULA / ALU</button>
+              <button type="button" data-board-tool="text" aria-pressed="false" title="Texto (T)">Texto</button>
+              <button type="button" data-board-tool="eraser" aria-pressed="false" title="Borracha (E)">Borracha</button>
+              <button type="button" data-board-tool="pan" aria-pressed="false" title="Mover tela (Espaço)">Mover tela</button>
+              <span class="tool-group" role="group" aria-label="Cor do traço">
+                <button type="button" class="swatch" data-board-color="#1e293b" aria-label="Cor preta" aria-pressed="true" style="background:#1e293b"></button>
+                <button type="button" class="swatch" data-board-color="#dc2626" aria-label="Cor vermelha" aria-pressed="false" style="background:#dc2626"></button>
+                <button type="button" class="swatch" data-board-color="#2563eb" aria-label="Cor azul" aria-pressed="false" style="background:#2563eb"></button>
+                <button type="button" class="swatch" data-board-color="#16a34a" aria-label="Cor verde" aria-pressed="false" style="background:#16a34a"></button>
+                <button type="button" class="swatch" data-board-color="#ffffff" aria-label="Cor branca" aria-pressed="false" style="background:#fff"></button>
+              </span>
+              <span class="tool-group" role="group" aria-label="Espessura do traço">
+                <button type="button" data-board-size="2" aria-pressed="true">Fina</button>
+                <button type="button" data-board-size="4" aria-pressed="false">Média</button>
+                <button type="button" data-board-size="8" aria-pressed="false">Grossa</button>
+                <button type="button" data-board-size="16" aria-pressed="false">Extra grossa</button>
+              </span>
+              <button type="button" data-board-action="clear">Limpar quadro</button>
+              <button type="button" data-board-action="zoom-out" aria-label="Diminuir zoom">−</button>
+              <button type="button" data-board-action="zoom-in" aria-label="Aumentar zoom">+</button>
+              <button type="button" data-board-action="zoom-reset">Zoom 1:1</button>
+              <button type="button" data-board-action="fit">Enquadrar tudo</button>
               <button type="button" data-board-image-add>Adicionar imagem</button>
               <input id="board-image-picker" type="file" accept="image/png,image/jpeg,image/gif,image/webp" data-board-image-picker>
               <button type="button" data-board-template-add>Inserir modelo FSM</button>

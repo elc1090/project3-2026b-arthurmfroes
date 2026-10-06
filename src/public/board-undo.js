@@ -3,7 +3,6 @@ import {
   addElement,
   createElementId,
   deleteElement as tombstoneElement,
-  eraseBoardAt,
   clipStrokePoints,
   getBoardMaps,
   readBoardElements,
@@ -50,6 +49,127 @@ function translateGeometry(geometry, dx, dy) {
     }));
   }
   return translated;
+}
+
+function boundsForElement(element) {
+  const geometry = element.geometry;
+  if (element.type === 'image' || element.type === 'rect' || element.type === 'mux' || element.type === 'alu') {
+    if ([geometry.x, geometry.y, geometry.width, geometry.height].every(Number.isFinite)) {
+      return { x: geometry.x, y: geometry.y, width: geometry.width, height: geometry.height };
+    }
+    if ([geometry.x1, geometry.y1, geometry.x2, geometry.y2].every(Number.isFinite)) {
+      return {
+        x: Math.min(geometry.x1, geometry.x2), y: Math.min(geometry.y1, geometry.y2),
+        width: Math.abs(geometry.x2 - geometry.x1), height: Math.abs(geometry.y2 - geometry.y1),
+      };
+    }
+  }
+  if (element.type === 'text' && Number.isFinite(geometry.x) && Number.isFinite(geometry.y)) {
+    const fontSize = (element.style.strokeWidth ?? 2) * 4 + 11;
+    return {
+      x: geometry.x, y: geometry.y,
+      width: (element.data.text ?? '').length * fontSize * 0.6,
+      height: fontSize * 1.3,
+    };
+  }
+  return null;
+}
+
+function clipLineOrArrow(element, center, radius) {
+  const { x1, y1, x2, y2 } = element.geometry;
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const lengthSquared = dx * dx + dy * dy;
+  const original = { type: element.type, geometry: element.geometry };
+  if (lengthSquared < 1e-9) {
+    return Math.hypot(x1 - center.x, y1 - center.y) < radius ? [] : null;
+  }
+
+  const fx = x1 - center.x;
+  const fy = y1 - center.y;
+  const b = 2 * (dx * fx + dy * fy);
+  const c = fx * fx + fy * fy - radius * radius;
+  const discriminant = b * b - 4 * lengthSquared * c;
+  if (discriminant <= 0) return null;
+
+  const root = Math.sqrt(discriminant);
+  const first = (-b - root) / (2 * lengthSquared);
+  const second = (-b + root) / (2 * lengthSquared);
+  const insideStart = Math.max(0, first);
+  const insideEnd = Math.min(1, second);
+  if (insideStart >= insideEnd) return null;
+
+  const hasStart = first > 1e-6;
+  const hasEnd = second < 1 - 1e-6;
+  const pointAt = t => ({ x: x1 + t * dx, y: y1 + t * dy });
+  const entry = pointAt(first);
+  const exit = pointAt(second);
+  const segment = (type, start, end) => ({
+    type,
+    geometry: { x1: start.x, y1: start.y, x2: end.x, y2: end.y },
+  });
+
+  if (hasStart && hasEnd) {
+    if (element.type === 'arrow') {
+      return [segment('line', { x: x1, y: y1 }, entry), segment('arrow', exit, { x: x2, y: y2 })];
+    }
+    return [segment(element.type, { x: x1, y: y1 }, entry), segment(element.type, exit, { x: x2, y: y2 })];
+  }
+  if (hasStart) return [segment(element.type === 'arrow' ? 'line' : element.type, { x: x1, y: y1 }, entry)];
+  if (hasEnd) return [segment(element.type, exit, { x: x2, y: y2 })];
+  return [original];
+}
+
+/** Return null for untouched items; otherwise return their visible replacements. */
+function clippedElements(element, center, radius) {
+  if (element.type === 'path' && Array.isArray(element.geometry.points)) {
+    const runs = clipStrokePoints(element.geometry.points, center, radius);
+    const unchanged = runs.length === 1
+      && JSON.stringify(runs[0]) === JSON.stringify(element.geometry.points);
+    return unchanged ? null : runs.map(points => ({
+      type: 'path', geometry: { ...element.geometry, points },
+    }));
+  }
+  if (element.type === 'line' || element.type === 'arrow') {
+    const clipped = clipLineOrArrow(element, center, radius);
+    if (clipped === null) return null;
+    if (clipped.length === 1
+      && clipped[0].type === element.type
+      && JSON.stringify(clipped[0].geometry) === JSON.stringify(element.geometry)) return null;
+    return clipped;
+  }
+  if (element.type === 'rect' || element.type === 'mux' || element.type === 'alu' || element.type === 'text') {
+    const bounds = boundsForElement(element);
+    return bounds
+      && center.x >= bounds.x && center.x <= bounds.x + bounds.width
+      && center.y >= bounds.y && center.y <= bounds.y + bounds.height
+      ? []
+      : null;
+  }
+  return null;
+}
+
+function eraserSamples(points, radius) {
+  const samples = [{ x: points[0].x, y: points[0].y }];
+  const step = Math.max(4, radius * 0.4);
+  for (let index = 1; index < points.length; index++) {
+    const start = points[index - 1];
+    const end = points[index];
+    const distance = Math.hypot(end.x - start.x, end.y - start.y);
+    const count = Math.max(1, Math.ceil(distance / step));
+    for (let sample = 1; sample <= count; sample++) {
+      const ratio = sample / count;
+      samples.push({ x: start.x + (end.x - start.x) * ratio, y: start.y + (end.y - start.y) * ratio });
+    }
+  }
+  return samples;
+}
+
+function sameElementContent(left, right) {
+  return left.type === right.type
+    && JSON.stringify(left.geometry) === JSON.stringify(right.geometry)
+    && JSON.stringify(left.style) === JSON.stringify(right.style)
+    && JSON.stringify(left.data) === JSON.stringify(right.data);
 }
 
 /**
@@ -219,51 +339,92 @@ export class LocalBoardHistory {
     }));
   }
 
+  clearElements() {
+    const order = getBoardMaps(this.doc).order.toArray();
+    const snapshots = readBoardElements(this.doc).map(element => ({
+      logicalId: this.logicalIdFor(element.id),
+      element,
+      index: order.indexOf(element.id),
+    }));
+    if (snapshots.length === 0) return 0;
+    const logicalIds = new Set(snapshots.map(item => item.logicalId));
+    let restoredSnapshots = [];
+    return this.recordSemantic({
+      undo: () => transactSemantic(this.doc, () => {
+        const ids = restoreAtPositions(this.doc, snapshots, this.createId);
+        restoredSnapshots = [...snapshots].sort((left, right) => left.index - right.index)
+          .map((snapshot, index) => ({ ...snapshot, element: { ...snapshot.element, id: ids[index] } }));
+        for (const logicalId of logicalIds) {
+          this.setPhysicalIds(logicalId, restoredSnapshots
+            .filter(item => item.logicalId === logicalId)
+            .map(item => item.element.id));
+        }
+      }),
+      redo: () => transactSemantic(this.doc, () => {
+        for (const item of restoredSnapshots) tombstoneElement(this.doc, item.element.id);
+        for (const logicalId of logicalIds) this.setPhysicalIds(logicalId, []);
+      }),
+    }, () => transactSemantic(this.doc, () => {
+      for (const item of snapshots) tombstoneElement(this.doc, item.element.id);
+      for (const logicalId of logicalIds) this.setPhysicalIds(logicalId, []);
+      return snapshots.length;
+    }));
+  }
+
   eraseAt({ x, y, radius, points = [{ x, y }] }) {
     if (!Array.isArray(points) || points.length === 0) return { deletedIds: [], createdIds: [] };
     const before = readBoardElements(this.doc);
     const beforeOrder = getBoardMaps(this.doc).order.toArray();
     const beforeById = new Map(before.map(element => [element.id, element]));
-    const origins = new Map(before.filter(element => element.type === 'path').map(element => [element.id, {
+    const erasableTypes = new Set(['path', 'line', 'arrow', 'rect', 'mux', 'alu', 'text']);
+    const origins = new Map(before.filter(element => erasableTypes.has(element.type)).map(element => [element.id, {
       sourceId: element.id,
       logicalId: this.logicalIdFor(element.id),
     }]));
     const logicalBySource = new Map([...origins.values()].map(origin => [origin.sourceId, origin.logicalId]));
     const touchedSources = new Set();
     const aggregate = { deletedIds: [], createdIds: [] };
-    const samples = points.map(point => ({ x: point.x, y: point.y }));
+    const samples = eraserSamples(points, radius);
 
     transactSemantic(this.doc, () => {
       for (const center of samples) {
         const orderedIds = getBoardMaps(this.doc).order.toArray();
         const plans = readBoardElements(this.doc)
-          .filter(element => element.type === 'path' && Array.isArray(element.geometry?.points))
           .map(element => {
-            const runs = clipStrokePoints(element.geometry.points, center, radius);
-            const unchanged = runs.length === 1
-              && JSON.stringify(runs[0]) === JSON.stringify(element.geometry.points);
-            return unchanged ? null : { id: element.id, runCount: runs.length };
+            const replacements = clippedElements(element, center, radius);
+            return replacements === null ? null : { element, replacements };
           })
           .filter(Boolean)
-          .sort((left, right) => orderedIds.indexOf(right.id) - orderedIds.indexOf(left.id));
+          .sort((left, right) => orderedIds.indexOf(right.element.id) - orderedIds.indexOf(left.element.id));
         if (plans.length === 0) continue;
 
-        const result = eraseBoardAt(this.doc, { ...center, radius, createId: this.createId });
-        aggregate.deletedIds.push(...result.deletedIds);
-        aggregate.createdIds.push(...result.createdIds);
-        let createdOffset = 0;
-        for (let index = 0; index < result.deletedIds.length; index++) {
-          const deletedId = result.deletedIds[index];
-          const plan = plans[index];
-          const origin = origins.get(deletedId) ?? {
-            sourceId: deletedId,
-            logicalId: this.logicalIdFor(deletedId),
+        for (const plan of plans) {
+          const sourceId = plan.element.id;
+          const origin = origins.get(sourceId) ?? {
+            sourceId,
+            logicalId: this.logicalIdFor(sourceId),
           };
-          origins.delete(deletedId);
+          const sourceIndex = orderedIds.indexOf(sourceId);
+          tombstoneElement(this.doc, sourceId);
+          origins.delete(sourceId);
+          aggregate.deletedIds.push(sourceId);
           touchedSources.add(origin.sourceId);
-          for (let run = 0; run < plan.runCount; run++) {
-            const createdId = result.createdIds[createdOffset++];
-            origins.set(createdId, origin);
+          plan.replacements.forEach((replacement, index) => {
+            const id = addAtOrderPosition(this.doc, {
+              ...plan.element,
+              ...replacement,
+              style: plan.element.style,
+              data: plan.element.data,
+            }, sourceIndex + 1 + index, this.createId);
+            aggregate.createdIds.push(id);
+            origins.set(id, origin);
+          });
+          const logicalIds = new Set([origin.logicalId]);
+          for (const logicalId of logicalIds) {
+            const visible = readBoardElements(this.doc)
+              .filter(element => origins.get(element.id)?.logicalId === logicalId || this.logicalIdFor(element.id) === logicalId)
+              .map(element => element.id);
+            this.setPhysicalIds(logicalId, visible);
           }
         }
       }
@@ -297,6 +458,25 @@ export class LocalBoardHistory {
 
     let currentOriginals = [];
     let activeSegments = currentSegments;
+    const resolveCurrentOriginals = () => {
+      const visible = readBoardElements(this.doc);
+      const claimed = new Set();
+      return currentOriginals.flatMap(snapshot => {
+        const candidates = this.physicalIdsFor(snapshot.logicalId)
+          .filter(id => !claimed.has(id))
+          .map(id => visible.find(element => element.id === id))
+          .filter(element => element && sameElementContent(element, snapshot.element));
+        const order = getBoardMaps(this.doc).order.toArray();
+        candidates.sort((left, right) => (
+          Math.abs(order.indexOf(left.id) - snapshot.index)
+          - Math.abs(order.indexOf(right.id) - snapshot.index)
+        ));
+        const element = candidates[0];
+        if (!element) return [];
+        claimed.add(element.id);
+        return [{ ...snapshot, element }];
+      });
+    };
     const replaceByLogical = (removed, added) => {
       const logicals = new Set([...removed, ...added].map(item => item.logicalId));
       for (const logicalId of logicals) {
@@ -317,19 +497,13 @@ export class LocalBoardHistory {
         replaceByLogical(activeSegments, currentOriginals);
       }),
       redo: () => transactSemantic(this.doc, () => {
-        const logicalIds = new Set(currentOriginals.map(original => original.logicalId));
-        for (const logicalId of logicalIds) {
-          for (const physicalId of this.physicalIdsFor(logicalId)) tombstoneElement(this.doc, physicalId);
-          this.setPhysicalIds(logicalId, []);
-        }
+        const originalsToReplace = resolveCurrentOriginals();
+        for (const original of originalsToReplace) tombstoneElement(this.doc, original.element.id);
+        replaceByLogical(originalsToReplace, []);
         const segmentIds = restoreAtPositions(this.doc, currentSegments, this.createId);
         activeSegments = [...currentSegments].sort((left, right) => left.index - right.index)
           .map((snapshot, index) => ({ ...snapshot, element: { ...snapshot.element, id: segmentIds[index] } }));
-        for (const logicalId of logicalIds) {
-          this.setPhysicalIds(logicalId, activeSegments
-            .filter(segment => segment.logicalId === logicalId)
-            .map(segment => segment.element.id));
-        }
+        replaceByLogical([], activeSegments);
       }),
     };
     this.enterSemanticMode();

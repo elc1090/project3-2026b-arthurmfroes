@@ -1,11 +1,15 @@
 import * as Y from 'yjs';
-import { addElement, createElementId, getBoardMaps, readBoardElements } from '../shared/board-model.js';
+import { addElement, createElementId, getBoardMaps, readBoardElements, readElement } from '../shared/board-model.js';
 import { bindBoardCanvas, CANVAS_ORIGIN } from './board-canvas.js';
 import { LocalBoardHistory } from './board-undo.js';
 import {
   addImageAssetReference,
+  enqueuePendingBoardImage,
   fileImageGeometry,
+  publishPendingBoardImages,
   readImageDimensions,
+  shouldQueuePendingImage,
+  subscribePendingBoardImages,
   templateImageGeometry,
   uploadBoardImage,
 } from './board-images.js';
@@ -38,6 +42,8 @@ export function mountBoardCanvas({ boardId, canvas, toolbar, doc: suppliedDoc, e
   const ownsDoc = !suppliedDoc;
   const doc = suppliedDoc ?? createBoardDocument(elements);
   let tool = 'select';
+  let color = '#1e293b';
+  let strokeWidth = 2;
   const undoButtons = [...toolbar.querySelectorAll('[data-board-undo]')];
   const redoButtons = [...toolbar.querySelectorAll('[data-board-redo]')];
   let history;
@@ -71,6 +77,25 @@ export function mountBoardCanvas({ boardId, canvas, toolbar, doc: suppliedDoc, e
     button.addEventListener('click', onClick);
     buttonListeners.push([button, onClick]);
   }
+  const colorButtons = [...toolbar.querySelectorAll('[data-board-color]')];
+  const sizeButtons = [...toolbar.querySelectorAll('[data-board-size]')];
+  const colorListeners = colorButtons.map(button => {
+    const listener = () => {
+      color = button.dataset.boardColor;
+      for (const candidate of colorButtons) candidate.setAttribute('aria-pressed', String(candidate === button));
+    };
+    button.addEventListener('click', listener);
+    return [button, listener];
+  });
+  const sizeListeners = sizeButtons.map(button => {
+    const listener = () => {
+      strokeWidth = Number(button.dataset.boardSize);
+      for (const candidate of sizeButtons) candidate.setAttribute('aria-pressed', String(candidate === button));
+    };
+    button.addEventListener('click', listener);
+    return [button, listener];
+  });
+  const actionButtons = [...toolbar.querySelectorAll('[data-board-action]')];
   const imagePicker = toolbar.querySelector?.('[data-board-image-picker]');
   const imageButton = toolbar.querySelector?.('[data-board-image-add]');
   const templateButton = toolbar.querySelector?.('[data-board-template-add]');
@@ -85,6 +110,7 @@ export function mountBoardCanvas({ boardId, canvas, toolbar, doc: suppliedDoc, e
         : 'Não foi possível carregar uma imagem do quadro.';
     },
     getTool: () => tool,
+    getStyle: () => ({ color, strokeWidth }),
     getLogicalId: id => history.logicalIdFor(id),
     beforeLocalAction: action => history.beginLocalAction(action),
     afterLocalAction: () => history.stopCapturing(),
@@ -94,55 +120,94 @@ export function mountBoardCanvas({ boardId, canvas, toolbar, doc: suppliedDoc, e
   const imageControls = [imagePicker, imageButton, templateButton].filter(Boolean);
   for (const control of imageControls) control.disabled = !boardId;
 
-  async function insertUploadedImage(file, placement = 'file') {
+  let disposed = false;
+  let pendingUnsubscribe;
+  let drainingPending = false;
+  const publishPending = async ({ pending, asset }) => {
+    const record = getBoardMaps(doc).elements.get(pending.elementId);
+    if (record) {
+      if (record.get('deleted') === true) return;
+      const existing = readElement(doc, pending.elementId);
+      if (existing?.type === 'image' && existing.data.assetId === asset.assetId) return;
+      throw new Error('O identificador local da imagem já pertence a outro elemento.');
+    }
+    const element = {
+      id: pending.elementId, type: 'image', geometry: pending.geometry, style: {},
+      data: { assetId: asset.assetId, mimeType: asset.mimeType,
+        width: pending.intrinsicWidth, height: pending.intrinsicHeight },
+    };
+    history.beginLocalAction({ kind: 'create', logicalId: element.id, index: getBoardMaps(doc).order.length, element });
+    try {
+      addImageAssetReference(doc, {
+        asset, geometry: pending.geometry, intrinsicWidth: pending.intrinsicWidth,
+        intrinsicHeight: pending.intrinsicHeight, idFactory: () => pending.elementId, origin: CANVAS_ORIGIN,
+      });
+    } finally {
+      history.stopCapturing();
+    }
+  };
+  const drainPendingImages = async () => {
+    if (!boardId || disposed || drainingPending || globalThis.navigator?.onLine === false) return;
+    drainingPending = true;
+    try {
+      await publishPendingBoardImages(boardId, {
+        upload: pending => uploadBoardImage(boardId, pending.blob),
+        publish: publishPending,
+      });
+    } catch (error) {
+      if (imageStatus) imageStatus.textContent = error.message ?? 'Uma imagem continua aguardando conexão.';
+    } finally {
+      drainingPending = false;
+    }
+  };
+  if (boardId) {
+    subscribePendingBoardImages(boardId, snapshot => binding.setPendingImages(snapshot))
+      .then(unsubscribe => { if (disposed) unsubscribe(); else pendingUnsubscribe = unsubscribe; })
+      .catch(error => { if (imageStatus) imageStatus.textContent = error.message; });
+  }
+
+  async function insertUploadedImage(file, placement = 'file', dropPoint = null) {
     if (!boardId || !file) return;
     if (!file.type.startsWith('image/')) throw new Error('Selecione um arquivo de imagem.');
     const dimensions = await readImageDimensions(file);
     const currentElements = readBoardElements(doc);
+    const canvasBounds = canvas.getBoundingClientRect();
+    const center = dropPoint ?? binding.clientToBoardPoint(
+      canvasBounds.left + canvasBounds.width / 2,
+      canvasBounds.top + canvasBounds.height / 2,
+    );
     const geometry = placement === 'template'
       ? templateImageGeometry({
         imageWidth: dimensions.width,
         imageHeight: dimensions.height,
         viewportWidth: canvas.width,
         viewportHeight: canvas.height,
-        centerX: canvas.width / 2,
-        centerY: canvas.height / 2,
+        centerX: center.x,
+        centerY: center.y,
         existingElements: currentElements,
       })
       : fileImageGeometry({
         imageWidth: dimensions.width,
         imageHeight: dimensions.height,
         canvasWidth: canvas.width,
-        centerX: canvas.width / 2,
-        centerY: canvas.height / 2,
+        centerX: center.x,
+        centerY: center.y,
       });
-    const asset = await uploadBoardImage(boardId, file);
     const id = createElementId();
-    const element = {
-      id,
-      type: 'image',
-      geometry,
-      style: {},
-      data: { assetId: asset.assetId, mimeType: asset.mimeType, width: dimensions.width, height: dimensions.height },
-    };
-    history.beginLocalAction({
-      kind: 'create',
-      logicalId: id,
-      index: getBoardMaps(doc).order.length,
-      element,
-    });
+    let asset;
     try {
-      addImageAssetReference(doc, {
-        asset,
-        geometry,
-        intrinsicWidth: dimensions.width,
-        intrinsicHeight: dimensions.height,
-        idFactory: () => id,
-        origin: CANVAS_ORIGIN,
+      asset = await uploadBoardImage(boardId, file);
+    } catch (error) {
+      if (!shouldQueuePendingImage(error)) throw error;
+      await enqueuePendingBoardImage(boardId, {
+        file, geometry, intrinsicWidth: dimensions.width, intrinsicHeight: dimensions.height, elementId: id,
       });
-    } finally {
-      history.stopCapturing();
+      if (imageStatus) imageStatus.textContent = 'Imagem salva neste navegador; será enviada quando a conexão voltar.';
+      void drainPendingImages();
+      return 'pending';
     }
+    await publishPending({ pending: { elementId: id, geometry, intrinsicWidth: dimensions.width, intrinsicHeight: dimensions.height }, asset });
+    return 'published';
   }
 
   const onImagePickerClick = () => imagePicker?.click();
@@ -152,8 +217,8 @@ export function mountBoardCanvas({ boardId, canvas, toolbar, doc: suppliedDoc, e
     if (!file) return;
     try {
       if (imageStatus) imageStatus.textContent = 'Enviando imagem…';
-      await insertUploadedImage(file);
-      if (imageStatus) imageStatus.textContent = 'Imagem adicionada ao quadro.';
+      const result = await insertUploadedImage(file);
+      if (result === 'published' && imageStatus) imageStatus.textContent = 'Imagem adicionada ao quadro.';
     } catch (error) {
       if (imageStatus) imageStatus.textContent = error.message ?? 'Não foi possível adicionar a imagem.';
     }
@@ -166,8 +231,8 @@ export function mountBoardCanvas({ boardId, canvas, toolbar, doc: suppliedDoc, e
       if (!response.ok) throw new Error('Não foi possível carregar o modelo.');
       const blob = await response.blob();
       const file = new File([blob], 'fsm-reference.png', { type: blob.type || 'image/png' });
-      await insertUploadedImage(file, 'template');
-      if (imageStatus) imageStatus.textContent = 'Modelo adicionado ao quadro.';
+      const result = await insertUploadedImage(file, 'template');
+      if (result === 'published' && imageStatus) imageStatus.textContent = 'Modelo adicionado ao quadro.';
     } catch (error) {
       if (imageStatus) imageStatus.textContent = error.message ?? 'Não foi possível adicionar o modelo.';
     }
@@ -180,8 +245,27 @@ export function mountBoardCanvas({ boardId, canvas, toolbar, doc: suppliedDoc, e
     event.preventDefault();
     try {
       if (imageStatus) imageStatus.textContent = 'Enviando imagem da área de transferência…';
-      await insertUploadedImage(file);
-      if (imageStatus) imageStatus.textContent = 'Imagem da área de transferência adicionada.';
+      const result = await insertUploadedImage(file);
+      if (result === 'published' && imageStatus) imageStatus.textContent = 'Imagem da área de transferência adicionada.';
+    } catch (error) {
+      if (imageStatus) imageStatus.textContent = error.message ?? 'Não foi possível adicionar a imagem.';
+    }
+  };
+  const onDragOver = event => {
+    if ([...(event.dataTransfer?.items ?? [])].some(item => item.kind === 'file' && item.type.startsWith('image/'))) {
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+    }
+  };
+  const onDrop = async event => {
+    const file = [...(event.dataTransfer?.files ?? [])].find(candidate => candidate.type.startsWith('image/'));
+    if (!file) return;
+    event.preventDefault();
+    try {
+      if (imageStatus) imageStatus.textContent = 'Enviando imagem…';
+      const point = binding.clientToBoardPoint(event.clientX, event.clientY);
+      const result = await insertUploadedImage(file, 'file', point);
+      if (result === 'published' && imageStatus) imageStatus.textContent = 'Imagem adicionada ao quadro.';
     } catch (error) {
       if (imageStatus) imageStatus.textContent = error.message ?? 'Não foi possível adicionar a imagem.';
     }
@@ -191,19 +275,79 @@ export function mountBoardCanvas({ boardId, canvas, toolbar, doc: suppliedDoc, e
   templateButton?.addEventListener('click', onTemplateClick);
   const pasteTarget = globalThis.document;
   pasteTarget?.addEventListener('paste', onPaste);
+  canvas.addEventListener('dragover', onDragOver);
+  canvas.addEventListener('drop', onDrop);
+  const keyTarget = globalThis.window ?? globalThis;
+  const onKeyDown = event => {
+    const target = event.target;
+    if (target?.matches?.('input, textarea, select, [contenteditable="true"]')) return;
+    if (event.key === ' ') {
+      binding.setSpacePressed(true);
+      event.preventDefault();
+      return;
+    }
+    const key = event.key.toLowerCase();
+    if ((event.ctrlKey || event.metaKey) && key === 'z') {
+      event.preventDefault();
+      if (event.shiftKey) history.redo(); else history.undo();
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && key === 'y') { event.preventDefault(); history.redo(); return; }
+    if ((event.ctrlKey || event.metaKey) && key === 's') { event.preventDefault(); return; }
+    const toolsByKey = { p: 'pen', h: 'highlighter', a: 'arrow', l: 'line', r: 'rectangle', m: 'mux', u: 'alu', t: 'text', e: 'eraser', s: 'select' };
+    if (toolsByKey[key]) {
+      event.preventDefault();
+      tool = toolsByKey[key];
+      for (const button of buttons) button.setAttribute('aria-pressed', String(button.dataset.boardTool === tool));
+    } else if (key === 'f') binding.fitToScreen();
+    else if (key === '+' || key === '=') binding.zoomIn();
+    else if (key === '-') binding.zoomOut();
+    else if (key === '0') binding.resetZoom();
+    else if (key === 'delete' || key === 'backspace') binding.deleteSelected();
+  };
+  const onKeyUp = event => { if (event.key === ' ') binding.setSpacePressed(false); };
+  keyTarget.addEventListener?.('keydown', onKeyDown);
+  keyTarget.addEventListener?.('keyup', onKeyUp);
+  const actionListeners = actionButtons.map(button => {
+    const listener = () => {
+      const action = button.dataset.boardAction;
+      if (action === 'clear') {
+        if ((globalThis.confirm ?? (() => true))('Limpar todos os elementos deste quadro?')) history.clearElements();
+      } else if (action === 'zoom-in') binding.zoomIn();
+      else if (action === 'zoom-out') binding.zoomOut();
+      else if (action === 'zoom-reset') binding.resetZoom();
+      else if (action === 'fit') binding.fitToScreen();
+    };
+    button.addEventListener('click', listener);
+    return [button, listener];
+  });
+  const onOnline = () => { void drainPendingImages(); };
+  keyTarget.addEventListener?.('online', onOnline);
+  void drainPendingImages();
   refreshHistoryButtons({ canUndo: history.canUndo, canRedo: history.canRedo });
   return {
     doc,
     history,
+    canvas: binding,
     destroy() {
       binding.destroy();
       for (const [button, listener] of buttonListeners) button.removeEventListener('click', listener);
+      for (const [button, listener] of colorListeners) button.removeEventListener('click', listener);
+      for (const [button, listener] of sizeListeners) button.removeEventListener('click', listener);
+      for (const [button, listener] of actionListeners) button.removeEventListener('click', listener);
       for (const [button, listener] of undoListeners) button.removeEventListener('click', listener);
       for (const [button, listener] of redoListeners) button.removeEventListener('click', listener);
       imageButton?.removeEventListener('click', onImagePickerClick);
       imagePicker?.removeEventListener('change', onImageSelected);
       templateButton?.removeEventListener('click', onTemplateClick);
       pasteTarget?.removeEventListener('paste', onPaste);
+      canvas.removeEventListener('dragover', onDragOver);
+      canvas.removeEventListener('drop', onDrop);
+      keyTarget.removeEventListener?.('keydown', onKeyDown);
+      keyTarget.removeEventListener?.('keyup', onKeyUp);
+      keyTarget.removeEventListener?.('online', onOnline);
+      disposed = true;
+      pendingUnsubscribe?.();
       history.destroy();
       if (ownsDoc) doc.destroy();
     },

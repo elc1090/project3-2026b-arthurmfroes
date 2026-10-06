@@ -181,6 +181,94 @@ test('eraser undo restores original strokes with fresh IDs and redo recreates cl
   doc.destroy();
 });
 
+test('one eraser gesture clips lines/arrows, removes bbox elements, and preserves images', () => {
+  const doc = new Y.Doc();
+  let nextId = 0;
+  const history = new LocalBoardHistory(doc, {
+    localOrigin: CANVAS_ORIGIN,
+    createId: () => `mixed-erase-${++nextId}`,
+  });
+  const initial = [
+    { id: 'line-a', type: 'line', geometry: { x1: 0, y1: 40, x2: 100, y2: 40 }, style: { color: '#123', strokeWidth: 2 }, data: {} },
+    { id: 'arrow-a', type: 'arrow', geometry: { x1: 0, y1: 68, x2: 100, y2: 68 }, style: { color: '#456', strokeWidth: 4 }, data: {} },
+    { id: 'rect-a', type: 'rect', geometry: { x: 45, y: 8, width: 10, height: 10 }, style: {}, data: {} },
+    { id: 'mux-a', type: 'mux', geometry: { x: 45, y: 24, width: 10, height: 10 }, style: {}, data: {} },
+    { id: 'alu-a', type: 'alu', geometry: { x: 45, y: 34, width: 10, height: 10 }, style: {}, data: {} },
+    { id: 'text-a', type: 'text', geometry: { x: 45, y: 48 }, style: { strokeWidth: 2 }, data: { text: 'ALU' } },
+    { id: 'image-a', type: 'image', geometry: { x: 45, y: 8, width: 10, height: 10 }, style: {}, data: { assetId: 'asset-a', mimeType: 'image/png' } },
+  ];
+  for (const element of initial) addElement(doc, element);
+  let updateCount = 0;
+  doc.on('update', () => { updateCount += 1; });
+
+  const result = history.eraseAt({ points: [{ x: 50, y: 0 }, { x: 50, y: 80 }], radius: 2 });
+
+  assert.equal(updateCount, 1, 'the complete pointer stroke is one Yjs transaction');
+  for (const id of ['line-a', 'arrow-a', 'rect-a', 'mux-a', 'alu-a', 'text-a']) {
+    assert.ok(result.deletedIds.includes(id), `${id} was cut or removed`);
+    assert.equal(getBoardMaps(doc).elements.get(id).get('deleted'), true);
+  }
+  assert.deepEqual(readBoardElements(doc).filter(element => element.type === 'image').map(element => element.id), ['image-a']);
+  assert.deepEqual(readBoardElements(doc).filter(element => element.type === 'line').map(element => element.geometry), [
+    { x1: 0, y1: 40, x2: 48, y2: 40 },
+    { x1: 52, y1: 40, x2: 100, y2: 40 },
+    { x1: 0, y1: 68, x2: 48, y2: 68 },
+  ]);
+  assert.deepEqual(readBoardElements(doc).filter(element => element.type === 'arrow').map(element => element.geometry), [
+    { x1: 52, y1: 68, x2: 100, y2: 68 },
+  ]);
+
+  assert.equal(history.undo(), true);
+  assert.deepEqual(readBoardElements(doc).map(({ type, geometry, data }) => ({ type, geometry, data })),
+    initial.map(({ type, geometry, data }) => ({ type, geometry, data })));
+  for (const id of result.deletedIds) assert.equal(getBoardMaps(doc).elements.get(id).get('deleted'), true);
+  for (const id of result.createdIds) assert.equal(getBoardMaps(doc).elements.get(id).get('deleted'), true);
+  assert.equal(getBoardMaps(doc).elements.get('line-a').get('deleted'), true);
+  assert.equal(getBoardMaps(doc).elements.get('arrow-a').get('deleted'), true);
+  assert.equal(history.redo(), true);
+  assert.equal(readBoardElements(doc).filter(element => element.type === 'image').length, 1);
+  assert.equal(getBoardMaps(doc).elements.get('image-a').get('deleted'), false);
+  for (const id of result.createdIds) assert.equal(getBoardMaps(doc).elements.get(id).get('deleted'), true);
+  assert.ok(readBoardElements(doc).filter(element => element.type === 'line' || element.type === 'arrow')
+    .every(element => getBoardMaps(doc).elements.get(element.id).get('deleted') === false));
+
+  history.destroy();
+  doc.destroy();
+});
+
+test('clear is one local history action and undo/redo never resets tombstones', () => {
+  const doc = new Y.Doc();
+  let nextId = 0;
+  const history = new LocalBoardHistory(doc, {
+    localOrigin: CANVAS_ORIGIN,
+    createId: () => `clear-restore-${++nextId}`,
+  });
+  const initial = [
+    { id: 'clear-rect', type: 'rect', geometry: { x: 1, y: 2, width: 3, height: 4 }, style: { color: '#123' }, data: {} },
+    { id: 'clear-text', type: 'text', geometry: { x: 5, y: 6 }, style: {}, data: { text: 'CPU' } },
+    { id: 'clear-image', type: 'image', geometry: { x: 7, y: 8, width: 9, height: 10 }, style: {}, data: { assetId: 'asset-clear', mimeType: 'image/png' } },
+  ];
+  for (const element of initial) addElement(doc, element);
+
+  assert.equal(history.clearElements(), initial.length);
+  assert.deepEqual(readBoardElements(doc), []);
+  assert.equal(history.clearElements(), 0, 'clearing an empty board does not create another undo entry');
+  for (const element of initial) assert.equal(getBoardMaps(doc).elements.get(element.id).get('deleted'), true);
+  assert.equal(history.undo(), true);
+  const restored = readBoardElements(doc);
+  assert.deepEqual(restored.map(({ type, geometry, data }) => ({ type, geometry, data })),
+    initial.map(({ type, geometry, data }) => ({ type, geometry, data })));
+  assert.deepEqual(restored.map(element => element.id), ['clear-restore-1', 'clear-restore-2', 'clear-restore-3']);
+  for (const element of restored) assert.equal(getBoardMaps(doc).elements.get(element.id).get('deleted'), false);
+  for (const element of initial) assert.equal(getBoardMaps(doc).elements.get(element.id).get('deleted'), true);
+  assert.equal(history.redo(), true);
+  assert.deepEqual(readBoardElements(doc), []);
+  for (const element of restored) assert.equal(getBoardMaps(doc).elements.get(element.id).get('deleted'), true);
+
+  history.destroy();
+  doc.destroy();
+});
+
 test('Canvas pointer gestures invoke local delete and eraser history commands', () => {
   const doc = new Y.Doc();
   let tool = 'delete';
@@ -200,6 +288,8 @@ test('Canvas pointer gestures invoke local delete and eraser history commands', 
     listeners: new Map(),
     context: {
       clearRect() {}, strokeRect() {}, fillRect() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {},
+      save() {}, restore() {}, translate() {}, scale() {}, closePath() {}, fill() {}, arc() {},
+      fillText() {}, setLineDash() {},
     },
     getContext() { return this.context; },
     getBoundingClientRect() { return { left: 0, top: 0, width: 120, height: 120 }; },
