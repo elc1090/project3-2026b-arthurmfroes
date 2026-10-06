@@ -42,7 +42,7 @@ When multiple implementers share this uncommitted working tree, assign exclusive
 ## 4. Durable storage and offline work
 
 - [x] 4.1 Persist per-board binary updates and issue a durable acknowledgement only after storage commits; verify an acknowledged edit survives a process restart with no browsers online.
-- [ ] 4.2 Add recoverable checkpoints and prune covered operational updates; verify restart and late-join reconstruction before and after pruning yield the same board state.
+- [x] 4.2 Add recoverable checkpoints and prune covered operational updates; verify restart and late-join reconstruction before and after pruning yield the same board state.
 - [ ] 4.3 Persist browser documents locally and reconcile them on reconnect; verify an edit made without network survives tab closure and appears on another authorized replica after reconnection.
 - [ ] 4.4 Expose local, peer-received, and durable-server statuses separately; verify a peer-visible edit is not marked persisted while the VPS path is paused.
 

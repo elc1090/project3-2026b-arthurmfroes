@@ -1,4 +1,5 @@
 import * as Y from 'yjs';
+import { randomUUID } from 'node:crypto';
 
 /**
  * Create the durable update API used by board synchronization transports.
@@ -16,14 +17,38 @@ export function createBoardUpdateStore(db) {
     WHERE id = ?
   `);
   const insertUpdate = db.prepare(`
-    INSERT INTO board_updates (id, board_id, origin_account_id, update_bytes)
-    VALUES (?, ?, ?, ?)
+    INSERT INTO board_updates (id, board_id, origin_account_id, update_bytes, sequence)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+  const allocateSequence = db.prepare(`
+    INSERT INTO board_update_cursors (board_id, last_sequence)
+    VALUES (?, 1)
+    ON CONFLICT(board_id) DO UPDATE SET last_sequence = last_sequence + 1
+    RETURNING last_sequence
   `);
   const listUpdates = db.prepare(`
-    SELECT update_bytes
+    SELECT update_bytes, sequence
     FROM board_updates
     WHERE board_id = ?
-    ORDER BY received_at, rowid
+      AND sequence > ?
+    ORDER BY sequence
+  `);
+  const latestCheckpoint = db.prepare(`
+    SELECT id, state_bytes, covered_sequence, created_at
+    FROM board_checkpoints
+    WHERE board_id = ?
+    ORDER BY covered_sequence DESC
+    LIMIT 1
+  `);
+  const readCursor = db.prepare('SELECT last_sequence FROM board_update_cursors WHERE board_id = ?');
+  const insertCheckpoint = db.prepare(`
+    INSERT INTO board_checkpoints (id, board_id, state_bytes, covered_sequence)
+    VALUES (?, ?, ?, ?)
+  `);
+  const readCheckpointTime = db.prepare('SELECT created_at FROM board_checkpoints WHERE id = ?');
+  const deleteCoveredUpdates = db.prepare(`
+    DELETE FROM board_updates
+    WHERE board_id = ? AND sequence <= ?
   `);
 
   const insertCommittedUpdate = db.transaction(({ updateId, boardId, originAccountId, bytes }) => {
@@ -40,15 +65,53 @@ export function createBoardUpdateStore(db) {
       return { receivedAt: existing.received_at };
     }
 
-    insertUpdate.run(updateId, boardId, originAccountId, bytes);
+    const { last_sequence: sequence } = allocateSequence.get(boardId);
+    insertUpdate.run(updateId, boardId, originAccountId, bytes, sequence);
     return { receivedAt: db.prepare('SELECT received_at FROM board_updates WHERE id = ?').get(updateId).received_at };
   });
+
+  const commitCheckpoint = db.transaction((boardId) => {
+    const lastSequence = readCursor.get(boardId)?.last_sequence ?? 0;
+    const previous = latestCheckpoint.get(boardId);
+    if (previous && previous.covered_sequence === lastSequence) {
+      return {
+        checkpointId: previous.id,
+        coveredSequence: previous.covered_sequence,
+        byteLength: previous.state_bytes.byteLength,
+        committedAt: previous.created_at,
+      };
+    }
+
+    const doc = new Y.Doc();
+    try {
+      if (previous) Y.applyUpdate(doc, new Uint8Array(previous.state_bytes));
+      for (const { update_bytes: updateBytes } of listUpdates.all(boardId, previous?.covered_sequence ?? 0)) {
+        Y.applyUpdate(doc, new Uint8Array(updateBytes));
+      }
+
+      const stateBytes = Y.encodeStateAsUpdate(doc);
+      const checkpointId = randomUUID();
+      insertCheckpoint.run(checkpointId, boardId, Buffer.from(stateBytes), lastSequence);
+      deleteCoveredUpdates.run(boardId, lastSequence);
+      return {
+        checkpointId,
+        coveredSequence: lastSequence,
+        byteLength: stateBytes.byteLength,
+        committedAt: readCheckpointTime.get(checkpointId).created_at,
+      };
+    } finally {
+      doc.destroy();
+    }
+  });
+  const readDocument = db.transaction((boardId) => reconstructDocument(boardId));
 
   return Object.freeze({
     /**
      * Persist an opaque Yjs update. Re-sending the exact same update ID and
-     * payload is idempotent and returns its original acknowledgement time.
-     * Reusing an ID for a different board, account, or payload is rejected.
+     * payload while its row is retained is idempotent and returns its original
+     * acknowledgement time. Once a checkpoint prunes that row, retrying it is
+     * accepted again; Yjs applies the same bytes idempotently. Reusing an
+     * unpruned ID for different content is rejected.
      */
     persistUpdate({ updateId, boardId, originAccountId, bytes }) {
       requireIdentifier(updateId, 'updateId');
@@ -72,18 +135,34 @@ export function createBoardUpdateStore(db) {
     /** Build a fresh Y.Doc by replaying this board's committed update bytes. */
     loadDocument(boardId) {
       requireIdentifier(boardId, 'boardId');
-      const doc = new Y.Doc();
-      try {
-        for (const { update_bytes: updateBytes } of listUpdates.all(boardId)) {
-          Y.applyUpdate(doc, new Uint8Array(updateBytes));
-        }
-        return doc;
-      } catch (error) {
-        doc.destroy();
-        throw error;
-      }
+      return readDocument.deferred(boardId);
+    },
+
+    /**
+     * Atomically save a self-contained state for the latest committed update
+     * sequence and prune only operational updates included in that state.
+     */
+    checkpointBoard(boardId) {
+      requireIdentifier(boardId, 'boardId');
+      const checkpoint = commitCheckpoint.immediate(boardId);
+      return Object.freeze({ boardId, ...checkpoint });
     },
   });
+
+  function reconstructDocument(boardId) {
+    const doc = new Y.Doc();
+    try {
+      const checkpoint = latestCheckpoint.get(boardId);
+      if (checkpoint) Y.applyUpdate(doc, new Uint8Array(checkpoint.state_bytes));
+      for (const { update_bytes: updateBytes } of listUpdates.all(boardId, checkpoint?.covered_sequence ?? 0)) {
+        Y.applyUpdate(doc, new Uint8Array(updateBytes));
+      }
+      return doc;
+    } catch (error) {
+      doc.destroy();
+      throw error;
+    }
+  }
 }
 
 function requireIdentifier(value, name) {
