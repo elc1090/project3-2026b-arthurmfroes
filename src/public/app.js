@@ -28,8 +28,16 @@ let mountedSyncStatusUI = null;
 let mountedSyncExperimentUI = null;
 let unobserveBoardEvents = [];
 let boardSession = null;
+let accessPolling = null;
+let pendingRequestsVersion = 0;
+
+function stopAccessPolling() {
+  if (accessPolling) clearInterval(accessPolling.timer);
+  accessPolling = null;
+}
 
 async function closeCurrentBoard() {
+  stopAccessPolling();
   for (const unsubscribe of unobserveBoardEvents) unsubscribe?.();
   unobserveBoardEvents = [];
   document.querySelector('#replica-panel')?.removeEventListener('replica-diagnostic-event', onReplicaDiagnosticEvent);
@@ -111,6 +119,92 @@ async function loadCatalog(search = '') {
   }
 }
 
+function renderMembers(boardId, members) {
+  membersList.replaceChildren();
+  for (const member of members) {
+    const item = document.createElement('li');
+    item.append(document.createTextNode(member.username));
+    if (member.accountId === currentAccountId) {
+      item.append(document.createTextNode(' (você)'));
+    } else {
+      const revoke = document.createElement('button');
+      revoke.type = 'button';
+      revoke.textContent = 'Revogar acesso';
+      revoke.addEventListener('click', async () => {
+        try {
+          await requestJson(`/api/boards/${encodeURIComponent(boardId)}/members/${encodeURIComponent(member.accountId)}/revoke`, { method: 'POST' });
+          const result = await requestJson(`/api/boards/${encodeURIComponent(boardId)}/members`);
+          renderMembers(boardId, result.members);
+        } catch (error) {
+          message.textContent = error.message;
+        }
+      });
+      item.append(' ', revoke);
+    }
+    membersList.append(item);
+  }
+}
+
+function renderPendingRequests(boardId, requests) {
+  pendingRequestsList.replaceChildren();
+  for (const pending of requests) {
+    const item = document.createElement('li');
+    const accept = document.createElement('button');
+    accept.type = 'button';
+    accept.textContent = `Aceitar pedido de ${pending.username}`;
+    accept.addEventListener('click', async () => {
+      try {
+        await requestJson(`/api/boards/${encodeURIComponent(boardId)}/access-requests/${encodeURIComponent(pending.accountId)}/accept`, { method: 'POST' });
+        const version = ++pendingRequestsVersion;
+        const [{ members }, { requests: remaining }] = await Promise.all([
+          requestJson(`/api/boards/${encodeURIComponent(boardId)}/members`),
+          requestJson(`/api/boards/${encodeURIComponent(boardId)}/access-requests`),
+        ]);
+        if (version === pendingRequestsVersion) {
+          renderMembers(boardId, members);
+          renderPendingRequests(boardId, remaining);
+        }
+      } catch (error) {
+        message.textContent = error.message;
+      }
+    });
+    item.append(accept);
+    pendingRequestsList.append(item);
+  }
+  if (!requests.length) {
+    const item = document.createElement('li');
+    item.textContent = 'Nenhum pedido pendente.';
+    pendingRequestsList.append(item);
+  }
+}
+
+function startAccessPolling(boardId, mode) {
+  stopAccessPolling();
+  const state = { inFlight: false, timer: null };
+  accessPolling = state;
+  state.timer = setInterval(async () => {
+    if (state.inFlight || accessPolling !== state) return;
+    state.inFlight = true;
+    try {
+      if (mode === 'member') {
+        const version = ++pendingRequestsVersion;
+        const { requests } = await requestJson(`/api/boards/${encodeURIComponent(boardId)}/access-requests`);
+        if (accessPolling === state && version === pendingRequestsVersion) renderPendingRequests(boardId, requests);
+      } else {
+        const { board } = await requestJson(`/api/boards/${encodeURIComponent(boardId)}`);
+        if (accessPolling === state && board.isMember) {
+          stopAccessPolling();
+          await loadBoard(boardId);
+        }
+      }
+    } catch {
+      // A later poll can recover from a temporary connection failure.
+    } finally {
+      state.inFlight = false;
+    }
+  }, 5000);
+}
+
 async function loadBoard(boardId) {
   catalogView.hidden = true;
   boardDetail.hidden = false;
@@ -126,6 +220,7 @@ async function loadBoard(boardId) {
     const { pending } = await requestJson(`/api/boards/${encodeURIComponent(boardId)}/access-request`);
     accessRequestForm.hidden = pending;
     accessRequestStatus.textContent = pending ? 'Seu pedido está aguardando a aprovação de um membro.' : '';
+    if (pending) startAccessPolling(boardId, 'requester');
     return;
   }
 
@@ -133,52 +228,10 @@ async function loadBoard(boardId) {
   pendingRequestsPanel.hidden = false;
   membersPanel.hidden = false;
   const { members } = await requestJson(`/api/boards/${encodeURIComponent(boardId)}/members`);
-  membersList.replaceChildren();
-  for (const member of members) {
-    const item = document.createElement('li');
-    item.append(document.createTextNode(member.username));
-    if (member.accountId === currentAccountId) {
-      item.append(document.createTextNode(' (você)'));
-    } else {
-      const revoke = document.createElement('button');
-      revoke.type = 'button';
-      revoke.textContent = 'Revogar acesso';
-      revoke.addEventListener('click', async () => {
-        try {
-          await requestJson(`/api/boards/${encodeURIComponent(boardId)}/members/${encodeURIComponent(member.accountId)}/revoke`, { method: 'POST' });
-          await loadBoard(boardId);
-        } catch (error) {
-          message.textContent = error.message;
-        }
-      });
-      item.append(' ', revoke);
-    }
-    membersList.append(item);
-  }
+  renderMembers(boardId, members);
 
   const { requests } = await requestJson(`/api/boards/${encodeURIComponent(boardId)}/access-requests`);
-  pendingRequestsList.replaceChildren();
-  for (const pending of requests) {
-    const item = document.createElement('li');
-    const accept = document.createElement('button');
-    accept.type = 'button';
-    accept.textContent = `Aceitar pedido de ${pending.username}`;
-    accept.addEventListener('click', async () => {
-      try {
-        await requestJson(`/api/boards/${encodeURIComponent(boardId)}/access-requests/${encodeURIComponent(pending.accountId)}/accept`, { method: 'POST' });
-        await loadBoard(boardId);
-      } catch (error) {
-        message.textContent = error.message;
-      }
-    });
-    item.append(accept);
-    pendingRequestsList.append(item);
-  }
-  if (!requests.length) {
-    const item = document.createElement('li');
-    item.textContent = 'Nenhum pedido pendente.';
-    pendingRequestsList.append(item);
-  }
+  renderPendingRequests(boardId, requests);
 
   const [{ mountBoardCanvas, openBoardSession, mountSyncExperimentUI }, { mountBoardStudyUI }] = await Promise.all([
     import('/board.bundle.js'),
@@ -212,6 +265,7 @@ async function loadBoard(boardId) {
   }
   document.querySelector('#board-access-message').textContent = 'Quadro compartilhado aberto neste navegador.';
   document.querySelector('#board-workspace').hidden = false;
+  startAccessPolling(boardId, 'member');
 }
 
 accessRequestForm.addEventListener('submit', async (event) => {
@@ -222,6 +276,7 @@ accessRequestForm.addEventListener('submit', async (event) => {
     await requestJson(`/api/boards/${encodeURIComponent(decodeURIComponent(boardMatch[1]))}/access-requests`, { method: 'POST' });
     accessRequestForm.hidden = true;
     accessRequestStatus.textContent = 'Seu pedido está aguardando a aprovação de um membro.';
+    startAccessPolling(decodeURIComponent(boardMatch[1]), 'requester');
   } catch (error) {
     message.textContent = error.message;
   }
