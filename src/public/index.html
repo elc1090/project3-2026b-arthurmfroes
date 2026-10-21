@@ -76,6 +76,83 @@
       #board-image-picker { display: none; }
       #board-image-status { flex-basis: 100%; margin: 0; font-size: .9rem; }
       #board-canvas { display: block; width: 100%; max-width: 800px; height: auto; border: 1px solid #cbd5e1; background: white; touch-action: none; }
+
+      /* The board is the page; supporting controls live in its side column. */
+      :root { background: #eaf0f7; color: #142039; }
+      body { display: block; background: #eaf0f7; }
+      main { box-sizing: border-box; width: 100%; min-height: 100vh; padding: 1rem clamp(.75rem, 2vw, 2rem); border-radius: 0; background: transparent; box-shadow: none; }
+      main > h1 { margin: 0; font-size: 1.25rem; line-height: 1.5; letter-spacing: -.03em; }
+      #account-panel { position: relative; }
+      #account-panel > p:first-child { margin: .1rem 0 .8rem; color: #52617a; font-size: .82rem; }
+      #logout-button { position: absolute; top: -2.5rem; right: 0; width: auto; }
+      button { width: auto; padding: .5rem .72rem; border: 1px solid #cfd8e7; background: #fff; color: #273752; font-size: .88rem; font-weight: 600; line-height: 1.25; }
+      button:hover { background: #eef3fa; }
+      button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid #4268df; outline-offset: 2px; }
+      #login-form button, #register-form button, #create-board-form button, #access-request-form button { background: #315bd3; border-color: #315bd3; color: #fff; }
+      #auth-panel { width: min(28rem, 100%); margin: 10vh auto 0; padding: 2rem; box-sizing: border-box; border: 1px solid #d8e0ec; border-radius: 1rem; background: #fff; box-shadow: 0 16px 44px #25385d12; }
+      #auth-panel form button { width: 100%; }
+      #board-catalog-view { width: min(64rem, 100%); padding: 1.5rem; box-sizing: border-box; border: 1px solid #d8e0ec; border-radius: 1rem; background: #fff; }
+      #board-detail { border: 0; margin: 0; padding: 0; }
+      #board-detail > p:first-child { margin: .2rem 0 .35rem; font-size: .83rem; }
+      #board-detail > p:first-child a { color: #4268df; text-decoration: none; }
+      #board-title { margin: 0; font-size: clamp(1.2rem, 2vw, 1.65rem); letter-spacing: -.035em; }
+      #board-access-message { margin: .2rem 0 .8rem; color: #60708a; font-size: .82rem; }
+      #study-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(17rem, 20rem); gap: 1rem; align-items: start; }
+      #board-primary, #workspace-sidebar { min-width: 0; }
+      #board-toolbar { margin: 0 0 .65rem; padding: .55rem; gap: .35rem; border: 1px solid #d7e0ed; border-radius: .85rem; background: #fff; box-shadow: 0 3px 12px #2436530a; }
+      #board-toolbar button { padding: .45rem .65rem; white-space: nowrap; }
+      #board-toolbar button[aria-pressed="true"] { outline: 0; border-color: #335ad0; background: #335ad0; color: #fff; }
+      #board-toolbar .tool-group { gap: .25rem; padding: 0 .25rem; border: 0; border-radius: 0; }
+      #board-toolbar .swatch { width: 1.85rem; height: 1.85rem; padding: 0; }
+      #board-secondary-actions [data-board-action="clear"] { color: #a63538; }
+      #board-image-status:empty, #study-status:empty { display: none; }
+      #board-canvas { box-sizing: border-box; width: 100%; max-width: none; height: auto; border: 1px solid #c8d3e3; border-radius: .75rem; box-shadow: 0 12px 34px #24365314; }
+      #workspace-sidebar { position: sticky; top: 1rem; display: grid; gap: .7rem; max-height: calc(100vh - 2rem); overflow: auto; padding-right: .2rem; scrollbar-color: #bdcbe0 transparent; }
+      #workspace-sidebar > section, #workspace-sidebar > aside, #workspace-sidebar > div { box-sizing: border-box; margin: 0; padding: .85rem; border: 1px solid #d7e0ed; border-radius: .8rem; background: #fff; }
+      #workspace-sidebar h3 { margin: 0 0 .65rem; font-size: .96rem; }
+      #workspace-sidebar ul { padding-left: 1.15rem; }
+      #workspace-sidebar > .sidebar-section { order: -1; }
+      #workspace-modes { order: -2; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .25rem; }
+      #workspace-modes button { min-width: 0; padding: .4rem .25rem; font-size: .78rem; }
+      #workspace-modes button[aria-pressed="true"] { background: #335ad0; border-color: #335ad0; color: #fff; }
+      #workspace-sidebar[data-mode="board"] > [data-pane]:not([data-pane="board"]),
+      #workspace-sidebar[data-mode="study"] > [data-pane]:not([data-pane="study"]),
+      #workspace-sidebar[data-mode="experiment"] > [data-pane]:not([data-pane="experiment"]) { display: none !important; }
+      #board-image-hint { margin: 0; color: #60708a; font-size: .78rem; }
+      #board-secondary-actions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .4rem; }
+      #board-secondary-actions button { grid-column: span 2; width: 100%; text-align: left; }
+      #board-secondary-actions [data-board-action="zoom-out"], #board-secondary-actions [data-board-action="zoom-in"] { grid-column: span 1; text-align: center; }
+      #study-toolbar { display: grid; grid-template-columns: 1fr 1fr; gap: .4rem; margin: 0; }
+      #workspace-sidebar #study-toolbar button { width: 100%; white-space: normal; text-align: left; }
+      #study-toolbar label { grid-column: 1 / -1; font-size: .78rem; color: #60708a; }
+      #workspace-sidebar #study-toolbar select { width: 100%; min-width: 0; padding: .45rem; border: 1px solid #cfd8e7; border-radius: .45rem; background: #fff; color: #273752; font: inherit; }
+      #study-gallery { margin: .7rem 0 0; padding: .65rem; }
+      #study-gallery-filters { max-height: 8rem; overflow-y: auto; }
+      #study-template-cards { grid-template-columns: 1fr; }
+      #study-sidebar { max-height: none; overflow-x: auto; }
+      #replica-panel header { align-items: flex-start; }
+      #replica-panel header small { color: #60708a; line-height: 1.35; }
+      #replica-panel [data-board-presence-status] { margin: .4rem 0; color: #60708a; font-size: .8rem; }
+      #replica-transport-controls { display: grid; grid-template-columns: 1fr 1fr; gap: .4rem; }
+      #replica-transport-controls button { width: 100%; margin: 0; }
+      #replica-previews { grid-template-columns: 1fr; }
+      #board-sync-status, #board-timeline, #sync-experiment { overflow-x: auto; }
+      #sync-experiment pre { font-size: .75rem; }
+      @media (max-width: 840px) {
+        #study-layout { grid-template-columns: minmax(0, 1fr); }
+        #workspace-sidebar { position: static; max-height: none; overflow: visible; padding-right: 0; }
+        #board-toolbar { max-height: none; overflow: visible; }
+      }
+      @media (max-width: 480px) {
+        main { padding: .7rem; }
+        main > h1 { font-size: 1.1rem; }
+        #account-panel > p:first-child { padding-right: 4rem; }
+        #logout-button { top: -2.1rem; }
+        #board-toolbar button { font-size: .78rem; padding: .38rem .5rem; }
+        #board-toolbar .tool-group { flex-wrap: wrap; }
+        #board-canvas { border-radius: .5rem; }
+        #study-toolbar { grid-template-columns: 1fr 1fr; }
+      }
     </style>
   </head>
   <body>
@@ -116,44 +193,9 @@
               <button type="submit">Solicitar acesso</button>
             </form>
           </section>
-          <section id="pending-requests-panel" hidden>
-            <h3>Pedidos de acesso</h3>
-            <ul id="pending-requests"></ul>
-          </section>
-          <section id="members-panel" hidden>
-            <h3>Membros</h3>
-            <ul id="board-members"></ul>
-          </section>
           <div id="board-workspace" hidden>
-            <div id="study-toolbar" aria-label="Ferramentas de estudo">
-              <button id="study-gallery-toggle" type="button" aria-expanded="false">Galeria de diagramas</button>
-              <label>Modelo rápido
-                <select id="study-template-select" aria-label="Selecionar modelo de estudo">
-                  <option value="">Selecione um diagrama…</option>
-                </select>
-              </label>
-              <button id="study-export-png" type="button">Baixar PNG</button>
-              <button id="study-save-image" type="button">Salvar imagem para análise</button>
-              <button id="study-sidebar-toggle" type="button" aria-expanded="false">Fórmulas &amp; FSM</button>
-            </div>
-            <p id="study-status" role="status" aria-live="polite"></p>
-            <section id="study-gallery" hidden aria-label="Galeria de diagramas">
-              <header>
-                <div><h3>Galeria de diagramas</h3><p>Escolha um template para acrescentar ao quadro.</p></div>
-                <button id="study-gallery-close" type="button" aria-label="Fechar galeria">Fechar</button>
-              </header>
-              <div id="study-gallery-filters" role="group" aria-label="Filtrar diagramas">
-                <button type="button" data-study-filter="all" aria-pressed="true">Todos</button>
-                <button type="button" data-study-filter="🏆 Prova Real (UFSM)" aria-pressed="false">Prova Real (UFSM)</button>
-                <button type="button" data-study-filter="Incompletos (Para Praticar)" aria-pressed="false">Incompletos</button>
-                <button type="button" data-study-filter="Completos (Referência)" aria-pressed="false">Completos</button>
-                <button type="button" data-study-filter="Passos Multiciclo" aria-pressed="false">Passos Multiciclo</button>
-                <button type="button" data-study-filter="Exercícios dos Slides" aria-pressed="false">Exercícios dos Slides</button>
-              </div>
-              <div id="study-template-cards" aria-live="polite"></div>
-            </section>
             <div id="study-layout">
-              <div>
+              <div id="board-primary">
             <div id="board-toolbar" aria-label="Ferramentas do quadro">
               <button type="button" data-board-tool="select" aria-pressed="true" title="Selecionar / mover (S)">Selecionar / mover</button>
               <button type="button" data-board-tool="pen" aria-pressed="false" title="Caneta (P)">Caneta</button>
@@ -166,6 +208,9 @@
               <button type="button" data-board-tool="text" aria-pressed="false" title="Texto (T)">Texto</button>
               <button type="button" data-board-tool="eraser" aria-pressed="false" title="Borracha (E)">Borracha</button>
               <button type="button" data-board-tool="pan" aria-pressed="false" title="Mover tela (Espaço)">Mover tela</button>
+              <button type="button" data-board-image-add>Adicionar imagem</button>
+              <input id="board-image-picker" type="file" accept="image/png,image/jpeg,image/gif,image/webp" data-board-image-picker>
+              <span id="board-image-hint">Ctrl+V cola uma imagem copiada</span>
               <span class="tool-group" role="group" aria-label="Cor do traço">
                 <button type="button" class="swatch" data-board-color="#1e293b" aria-label="Cor preta" aria-pressed="true" style="background:#1e293b"></button>
                 <button type="button" class="swatch" data-board-color="#dc2626" aria-label="Cor vermelha" aria-pressed="false" style="background:#dc2626"></button>
@@ -179,20 +224,68 @@
                 <button type="button" data-board-size="8" aria-pressed="false">Grossa</button>
                 <button type="button" data-board-size="16" aria-pressed="false">Extra grossa</button>
               </span>
-              <button type="button" data-board-action="clear">Limpar quadro</button>
-              <button type="button" data-board-action="zoom-out" aria-label="Diminuir zoom">−</button>
-              <button type="button" data-board-action="zoom-in" aria-label="Aumentar zoom">+</button>
-              <button type="button" data-board-action="zoom-reset">Zoom 1:1</button>
-              <button type="button" data-board-action="fit">Enquadrar tudo</button>
-              <button type="button" data-board-image-add>Adicionar imagem</button>
-              <input id="board-image-picker" type="file" accept="image/png,image/jpeg,image/gif,image/webp" data-board-image-picker>
-              <button type="button" data-board-template-add>Inserir modelo FSM</button>
-              <button type="button" data-board-undo disabled>Desfazer</button>
-              <button type="button" data-board-redo disabled>Refazer</button>
+              <button type="button" data-board-undo aria-label="Desfazer" title="Desfazer" disabled>↶</button>
+              <button type="button" data-board-redo aria-label="Refazer" title="Refazer" disabled>↷</button>
               <p id="board-image-status" data-board-image-status role="status" aria-live="polite"></p>
             </div>
-            <canvas id="board-canvas" width="800" height="480" aria-label="Canvas compartilhado"></canvas>
-            <section id="replica-panel" aria-label="Painel de réplicas">
+            <canvas id="board-canvas" width="1200" height="720" aria-label="Canvas compartilhado"></canvas>
+              </div>
+              <aside id="workspace-sidebar" data-mode="board" aria-label="Controles e informações do quadro">
+                <nav id="workspace-modes" aria-label="Áreas do quadro">
+                  <button type="button" data-workspace-mode="board" aria-pressed="true">Quadro</button>
+                  <button type="button" data-workspace-mode="study" aria-pressed="false">Estudo</button>
+                  <button type="button" data-workspace-mode="experiment" aria-pressed="false">Experimento</button>
+                </nav>
+                <section id="pending-requests-panel" data-pane="board" hidden>
+                  <h3>Pedidos de acesso</h3>
+                  <ul id="pending-requests"></ul>
+                </section>
+                <section id="members-panel" data-pane="board" hidden>
+                  <h3>Membros</h3>
+                  <ul id="board-members"></ul>
+                </section>
+                <section class="sidebar-section" data-pane="board" aria-label="Ações do quadro">
+                  <h3>Ações do quadro</h3>
+                  <div id="board-secondary-actions">
+                    <button type="button" data-board-action="zoom-out" aria-label="Diminuir zoom">−</button>
+                    <button type="button" data-board-action="zoom-in" aria-label="Aumentar zoom">+</button>
+                    <button type="button" data-board-action="zoom-reset">Zoom 1:1</button>
+                    <button type="button" data-board-action="fit">Enquadrar tudo</button>
+                    <button id="study-export-png" type="button">Baixar PNG</button>
+                    <button type="button" data-board-action="clear">Limpar quadro</button>
+                  </div>
+                </section>
+                <section class="sidebar-section" data-pane="study" aria-label="Ferramentas de estudo">
+                  <h3>Material de estudo</h3>
+                  <div id="study-toolbar" aria-label="Ferramentas de estudo">
+                    <button id="study-gallery-toggle" type="button" aria-expanded="false">Diagramas de processadores</button>
+                    <label>Modelo rápido
+                      <select id="study-template-select" aria-label="Selecionar modelo de estudo">
+                        <option value="">Selecione um diagrama…</option>
+                      </select>
+                    </label>
+                    <button type="button" data-board-template-add>Inserir modelo FSM</button>
+                    <button id="study-save-image" type="button">Salvar imagem para análise</button>
+                    <button id="study-sidebar-toggle" type="button" aria-expanded="false">Fórmulas &amp; FSM</button>
+                  </div>
+                  <p id="study-status" role="status" aria-live="polite"></p>
+                  <section id="study-gallery" hidden aria-label="Galeria de diagramas">
+                    <header>
+                      <div><h3>Galeria de diagramas</h3><p>Escolha um template para acrescentar ao quadro.</p></div>
+                      <button id="study-gallery-close" type="button" aria-label="Fechar galeria">Fechar</button>
+                    </header>
+                    <div id="study-gallery-filters" role="group" aria-label="Filtrar diagramas">
+                      <button type="button" data-study-filter="all" aria-pressed="true">Todos</button>
+                      <button type="button" data-study-filter="🏆 Prova Real (UFSM)" aria-pressed="false">Prova Real (UFSM)</button>
+                      <button type="button" data-study-filter="Incompletos (Para Praticar)" aria-pressed="false">Incompletos</button>
+                      <button type="button" data-study-filter="Completos (Referência)" aria-pressed="false">Completos</button>
+                      <button type="button" data-study-filter="Passos Multiciclo" aria-pressed="false">Passos Multiciclo</button>
+                      <button type="button" data-study-filter="Exercícios dos Slides" aria-pressed="false">Exercícios dos Slides</button>
+                    </div>
+                    <div id="study-template-cards" aria-live="polite"></div>
+                  </section>
+                </section>
+            <section id="replica-panel" data-pane="experiment" aria-label="Painel de réplicas">
               <header>
                 <h3>Réplicas do quadro</h3>
                 <small>Prévias diagnósticas efêmeras; não são confirmação de persistência.</small>
@@ -201,19 +294,16 @@
               <p id="replica-server-state">VPS: conectando</p>
               <p id="replica-peer-state">P2P: conectando</p>
               <div id="replica-transport-controls" aria-label="Controles independentes de transporte">
-                <button id="replica-pause-server" type="button">Pausar VPS</button>
-                <button id="replica-resume-server" type="button">Retomar VPS</button>
-                <button id="replica-pause-peer" type="button">Pausar P2P</button>
-                <button id="replica-resume-peer" type="button">Retomar P2P</button>
+                <button id="replica-toggle-server" type="button">Pausar VPS</button>
+                <button id="replica-toggle-peer" type="button">Pausar P2P</button>
               </div>
               <p id="replica-panel-status" role="status" aria-live="polite">Canal de diagnóstico desconectado.</p>
               <div id="replica-previews" aria-live="polite"></div>
             </section>
-            <div id="board-sync-status"></div>
-            <div id="board-timeline"></div>
-            <div id="sync-experiment"></div>
-              </div>
-              <aside id="study-sidebar" hidden aria-label="Referência rápida para estudo">
+            <div id="board-sync-status" data-pane="experiment"></div>
+            <div id="board-timeline" data-pane="experiment"></div>
+            <div id="sync-experiment" data-pane="experiment"></div>
+              <aside id="study-sidebar" data-pane="study" hidden aria-label="Referência rápida para estudo">
                 <header><h3>Referência rápida</h3><button id="study-sidebar-close" type="button">Fechar</button></header>
                 <div id="study-sidebar-tabs" role="tablist" aria-label="Conteúdo de estudo">
                   <button type="button" role="tab" id="study-tab-signals" aria-controls="study-panel-signals" aria-selected="true" data-study-tab="signals">Sinais &amp; FSM</button>
@@ -255,6 +345,7 @@
                   <div id="study-feedback-notes" aria-live="polite">Nenhuma anotação salva.</div>
                   <button id="study-feedback-refresh" type="button">Atualizar feedback</button>
                 </section>
+              </aside>
               </aside>
             </div>
           </div>

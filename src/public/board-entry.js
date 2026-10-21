@@ -51,6 +51,9 @@ export function mountBoardCanvas({
   boardId,
   canvas,
   toolbar,
+  secondaryToolbar = toolbar,
+  studyToolbar = secondaryToolbar,
+  presenceContainer = toolbar,
   doc: suppliedDoc,
   elements = [],
   onSaveBoardImage = () => {},
@@ -116,10 +119,12 @@ export function mountBoardCanvas({
     button.addEventListener('click', listener);
     return [button, listener];
   });
-  const actionButtons = [...toolbar.querySelectorAll('[data-board-action]')];
-  const imagePicker = toolbar.querySelector?.('[data-board-image-picker]');
-  const imageButton = toolbar.querySelector?.('[data-board-image-add]');
-  const templateButton = toolbar.querySelector?.('[data-board-template-add]');
+  const actionButtons = [...secondaryToolbar.querySelectorAll('[data-board-action]')];
+  const imagePicker = toolbar.querySelector?.('[data-board-image-picker]')
+    ?? secondaryToolbar.querySelector?.('[data-board-image-picker]');
+  const imageButton = toolbar.querySelector?.('[data-board-image-add]')
+    ?? secondaryToolbar.querySelector?.('[data-board-image-add]');
+  const templateButton = studyToolbar.querySelector?.('[data-board-template-add]');
   const imageStatus = toolbar.querySelector?.('[data-board-image-status]');
   const binding = bindBoardCanvas({
     doc,
@@ -160,7 +165,7 @@ export function mountBoardCanvas({
     presenceStatus.setAttribute('aria-live', 'polite');
     presenceStatus.style.cssText = 'flex-basis:100%;margin:0;color:#475569;font-size:.85rem';
     presenceStatus.textContent = 'Conectando pares P2P…';
-    toolbar.append(presenceStatus);
+    presenceContainer.append(presenceStatus);
   }
   if (boardSession) {
     const name = typeof displayName === 'string' ? displayName.trim().slice(0, 64) : '';

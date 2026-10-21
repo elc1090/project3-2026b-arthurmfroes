@@ -53,6 +53,7 @@ test('browser renders retained object diffs side by side and shows replica clock
         failed: performance.getEntriesByType('resource').filter((r) => r.name.endsWith('.js')).map((r) => r.name) }));
       throw new Error(`Board page did not open: ${JSON.stringify({ state, pageErrors })}`, { cause: error });
     }
+    await page.getByRole('button', { name: 'Experimento', exact: true }).click();
     await page.locator('#replica-history').waitFor({ state: 'visible' });
 
     const replicaId = `peer:${randomUUID()}`;
@@ -130,7 +131,8 @@ test('local canvas edit refreshes history while VPS sync is paused and no other 
     page.on('console', (message) => { if (message.type() === 'error') pageErrors.push(message.text()); });
     await page.goto(`${baseUrl}/boards/${boardId}`);
     await page.locator('#board-workspace').waitFor({ state: 'visible', timeout: 15_000 });
-    await page.locator('#replica-pause-server').click();
+    await page.getByRole('button', { name: 'Experimento', exact: true }).click();
+    await page.locator('#replica-toggle-server').click();
     await page.getByText('Conexão VPS: pausada neste navegador').waitFor();
     await page.waitForFunction(() => document.querySelector('.replica-preview-card[data-replica-id="vps"]')?.dataset.elementCount === '0');
     const localReplicaId = await page.evaluate((id) => {

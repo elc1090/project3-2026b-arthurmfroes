@@ -197,7 +197,7 @@ test('two authorized browser profiles render the same asset and exercise file, p
   }
 });
 
-test('the real board page opens its hybrid bundle and inserts a template image', { timeout: 30_000 }, async () => {
+test('the real board page exposes processor diagrams and accepts clipboard images', { timeout: 30_000 }, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'whiteboard-real-image-page-'));
   const db = await openDatabase(join(directory, 'board.sqlite'));
   const member = addAccount(db, 'realpagemember');
@@ -229,16 +229,25 @@ test('the real board page opens its hybrid bundle and inserts a template image',
     await page.goto(`${baseUrl}/boards/${boardId}`);
     await page.locator('#board-workspace').waitFor({ state: 'visible', timeout: 10_000 });
     assert.equal(await page.locator('#board-title').textContent(), 'Real image page');
-    await page.locator('[data-board-template-add]').click();
+    assert.equal(await page.locator('[data-board-image-add]').isVisible(), true);
+    assert.equal(await page.locator('#board-image-hint').isVisible(), true);
+    assert.equal(await page.locator('#study-gallery-toggle').isVisible(), false);
+    assert.equal(await page.locator('#replica-panel').isVisible(), false);
+    await page.evaluate(() => { window.__originalCanvas = document.querySelector('#board-canvas'); });
+    await page.getByRole('button', { name: 'Estudo', exact: true }).click();
+    assert.equal(await page.locator('#study-gallery-toggle').isVisible(), true);
+    await page.locator('#study-gallery-toggle').click();
+    await page.locator('#study-gallery').waitFor({ state: 'visible' });
+    await page.locator('.study-template-card').filter({ hasText: 'Completo Multi Fsm 10 Estados' })
+      .getByRole('button', { name: 'Acrescentar ao quadro' }).click();
     try {
-      await page.getByText('Modelo adicionado ao quadro.').waitFor({ timeout: 10_000 });
+      await page.getByText('Completo Multi Fsm 10 Estados adicionado ao quadro.').waitFor({ timeout: 10_000 });
     } catch (error) {
       throw new Error(`Real board image insertion failed: ${JSON.stringify({
-        imageStatus: await page.locator('#board-image-status').textContent(),
+        imageStatus: await page.locator('#study-status').textContent(),
         pageMessage: await page.locator('#message').textContent(),
         workspaceVisible: await page.locator('#board-workspace').isVisible(),
         currentUrl: page.url(),
-        buttonHtml: await page.locator('[data-board-template-add]').evaluate(element => element.outerHTML),
         pageErrors,
       })}`, { cause: error });
     }
@@ -246,6 +255,30 @@ test('the real board page opens its hybrid bundle and inserts a template image',
       const pixels = document.querySelector('#board-canvas').getContext('2d').getImageData(183, 15, 434, 450).data;
       return pixels.some((channel, index) => index % 4 === 3 && channel > 0);
     }, null, { timeout: 10_000 });
+    await page.evaluate(async () => {
+      const blob = await (await fetch('/api/templates/fsm-reference')).blob();
+      const transfer = new DataTransfer();
+      transfer.items.add(new File([blob], 'processor-paste.png', { type: blob.type }));
+      document.dispatchEvent(new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }));
+    });
+    await page.getByText('Imagem da área de transferência adicionada.').waitFor({ timeout: 10_000 });
+    await page.waitForFunction(async id => {
+      const response = await fetch(`/api/boards/${id}/content`);
+      return response.ok && (await response.json()).elements.filter(element => element.type === 'image').length === 2;
+    }, boardId, { timeout: 10_000 });
+    await page.getByRole('button', { name: 'Experimento', exact: true }).click();
+    assert.equal(await page.locator('#replica-panel').isVisible(), true);
+    assert.equal(await page.locator('#study-gallery-toggle').isVisible(), false);
+    assert.equal(await page.evaluate(() => document.querySelector('#board-canvas') === window.__originalCanvas), true);
+    await page.getByRole('button', { name: 'Quadro', exact: true }).click();
+    assert.equal(await page.locator('[data-board-image-add]').isVisible(), true);
+    assert.equal(await page.locator('#replica-panel').isVisible(), false);
+    assert.equal(await page.evaluate(() => document.querySelector('#board-canvas') === window.__originalCanvas), true);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole('button', { name: 'Estudo', exact: true }).click();
+    await page.locator('#study-sidebar-toggle').click();
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), 390);
+    assert.equal(await page.locator('#study-sidebar').isVisible(), true);
     assert.equal(await page.locator('#message').textContent(), '');
   } finally {
     await context?.close();

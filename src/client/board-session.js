@@ -264,6 +264,7 @@ export async function openBoardSession(boardId, {
     ready: Promise.resolve(doc),
     get serverStatus() { return serverSync.status; },
     get p2pStatus() { return { ...peerState }; },
+    get peerSyncPaused() { return peerPaused; },
     get syncStatus() { return syncStatus.getSnapshot(); },
     get experimentMetrics() { return experimentMetrics.snapshot(); },
     resetExperimentMetrics() { experimentMetrics.reset(); },

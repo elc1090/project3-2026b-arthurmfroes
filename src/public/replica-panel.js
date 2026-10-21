@@ -11,10 +11,8 @@ export function mountReplicaPanel({ boardId, session, root = document.querySelec
   const localState = root.querySelector('#replica-local-state');
   const serverState = root.querySelector('#replica-server-state');
   const peerState = root.querySelector('#replica-peer-state');
-  const pauseServerButton = root.querySelector('#replica-pause-server');
-  const resumeServerButton = root.querySelector('#replica-resume-server');
-  const pausePeerButton = root.querySelector('#replica-pause-peer');
-  const resumePeerButton = root.querySelector('#replica-resume-peer');
+  const serverButton = root.querySelector('#replica-toggle-server');
+  const peerButton = root.querySelector('#replica-toggle-peer');
   let destroyed = false;
   let socket = null;
   let reconnectTimer = null;
@@ -26,7 +24,6 @@ export function mountReplicaPanel({ boardId, session, root = document.querySelec
   let currentPeerViews = [];
   let diagnosticState = 'conectando';
   let refreshIntervalMs = 1_000;
-  let peerPaused = false;
   const previewCards = new Map();
   const imageBitmaps = new Map();
   const historyUI = mountReplicaHistory({ root, send: sendDiagnosticMessage });
@@ -166,12 +163,10 @@ export function mountReplicaPanel({ boardId, session, root = document.querySelec
     localState.textContent = 'Estado local: ativo';
     serverState.textContent = `Conexão VPS: ${server === 'connected' ? 'ativa' : server === 'paused' ? 'pausada neste navegador' : server}`;
     const peerCount = session.p2pPeerCount ?? p2p.peerCount ?? 0;
-    peerState.textContent = `P2P: ${peerCount > 0 ? `${peerCount} peer(s) conectado(s)` : peerPaused ? 'desconectado ou pausado' : p2p.connected ? 'aguardando conexão direta' : 'desconectado'}`;
+    peerState.textContent = `P2P: ${peerCount > 0 ? `${peerCount} peer(s) conectado(s)` : session.peerSyncPaused ? 'desconectado ou pausado' : p2p.connected ? 'aguardando conexão direta' : 'desconectado'}`;
     status.textContent = `Canal de diagnóstico ${diagnosticState}; prévias são projeções efêmeras, não confirmações de persistência. A prévia da VPS é atualizada a cada ~${Math.round(refreshIntervalMs / 100) / 10}s.`;
-    pauseServerButton.disabled = server === 'paused';
-    resumeServerButton.disabled = server !== 'paused';
-    pausePeerButton.disabled = peerPaused;
-    resumePeerButton.disabled = !peerPaused;
+    serverButton.textContent = server === 'paused' ? 'Retomar VPS' : 'Pausar VPS';
+    peerButton.textContent = session.peerSyncPaused ? 'Retomar P2P' : 'Pausar P2P';
   }
 
   function sendSnapshot() {
@@ -250,15 +245,19 @@ export function mountReplicaPanel({ boardId, session, root = document.querySelec
   const unsubscribeServer = session.on('server-status', updateStatus);
   const unsubscribePeer = session.on('p2p-status', updateStatus);
   const onDocumentUpdate = () => scheduleSnapshot();
-  const onPauseServer = () => { session.pauseServerSync(); updateStatus(); };
-  const onResumeServer = () => { session.resumeServerSync(); updateStatus(); };
-  const onPausePeer = () => { session.pausePeerSync(); peerPaused = true; updateStatus(); };
-  const onResumePeer = () => { session.resumePeerSync(); peerPaused = false; updateStatus(); };
+  const onToggleServer = () => {
+    if (session.serverStatus === 'paused') session.resumeServerSync();
+    else session.pauseServerSync();
+    updateStatus();
+  };
+  const onTogglePeer = () => {
+    if (session.peerSyncPaused) session.resumePeerSync();
+    else session.pausePeerSync();
+    updateStatus();
+  };
   session.doc.on('update', onDocumentUpdate);
-  pauseServerButton.addEventListener('click', onPauseServer);
-  resumeServerButton.addEventListener('click', onResumeServer);
-  pausePeerButton.addEventListener('click', onPausePeer);
-  resumePeerButton.addEventListener('click', onResumePeer);
+  serverButton.addEventListener('click', onToggleServer);
+  peerButton.addEventListener('click', onTogglePeer);
   updateStatus();
   renderPreviews();
   connectDiagnostics();
@@ -283,10 +282,8 @@ export function mountReplicaPanel({ boardId, session, root = document.querySelec
       historyUI.destroy();
       unsubscribeServer();
       unsubscribePeer();
-      pauseServerButton.removeEventListener('click', onPauseServer);
-      resumeServerButton.removeEventListener('click', onResumeServer);
-      pausePeerButton.removeEventListener('click', onPausePeer);
-      resumePeerButton.removeEventListener('click', onResumePeer);
+      serverButton.removeEventListener('click', onToggleServer);
+      peerButton.removeEventListener('click', onTogglePeer);
       socket?.close(1000, 'Replica panel closed');
       for (const image of imageBitmaps.values()) {
         Promise.resolve(image).then((bitmap) => bitmap.close?.()).catch(() => {});

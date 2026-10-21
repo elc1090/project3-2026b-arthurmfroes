@@ -47,6 +47,7 @@ async function waitForBoardPage(context, baseUrl, boardId) {
     }));
     throw new Error('Board page did not open: ' + JSON.stringify({ state, pageErrors, failedResponses, pageUrl: page.url() }), { cause: error });
   }
+  await page.getByRole('button', { name: 'Experimento', exact: true }).click();
   await page.locator('#replica-panel-status').getByText(/Canal de diagnóstico ativo/).waitFor({ timeout: 10_000 });
   const metricsPanel = page.locator('#sync-experiment [data-sync-experiment]');
   await metricsPanel.getByText('Tráfego desta réplica').waitFor();
@@ -125,9 +126,12 @@ test('two browser replicas stay ahead of the VPS preview while server sync is pa
       throw new Error('Direct peer did not connect: ' + JSON.stringify({ states, errors: [alicePage.replicaTestErrors, bobPage.replicaTestErrors] }), { cause: error });
     }
 
-    await Promise.all([alicePage, bobPage].map((page) => page.locator('#replica-pause-server').click()));
+    await Promise.all([alicePage, bobPage].map((page) => page.locator('#replica-toggle-server').click()));
+    await Promise.all([alicePage, bobPage].map((page) => page.getByRole('button', { name: 'Retomar VPS' }).waitFor()));
     await Promise.all([alicePage, bobPage].map((page) => page.getByText('Conexão VPS: pausada neste navegador').waitFor()));
+    await alicePage.getByRole('button', { name: 'Estudo', exact: true }).click();
     await alicePage.locator('[data-board-template-add]').click();
+    await alicePage.getByRole('button', { name: 'Experimento', exact: true }).click();
     await waitForPreview(alicePage, 'local', 1);
     await bobPage.waitForFunction(() =>
       [...document.querySelectorAll('.replica-preview-card')].some((card) =>
@@ -181,10 +185,12 @@ test('two browser replicas stay ahead of the VPS preview while server sync is pa
     assert.equal(previews.filter((card) => card.id === 'vps' && card.count === '0').length, 1,
       'the displayed peer states differ from the older durable VPS replica');
 
-    await alicePage.locator('#replica-pause-peer').click();
+    await alicePage.locator('#replica-toggle-peer').click();
+    await alicePage.getByRole('button', { name: 'Retomar P2P' }).waitFor();
     await alicePage.getByText('P2P: desconectado ou pausado').waitFor();
     await alicePage.getByText('Conexão VPS: pausada neste navegador').waitFor();
-    await alicePage.locator('#replica-resume-peer').click();
+    await alicePage.locator('#replica-toggle-peer').click();
+    await alicePage.getByRole('button', { name: 'Pausar P2P' }).waitFor();
     await alicePage.waitForFunction(() =>
       /P2P: [1-9][0-9]* peer\(s\) conectado\(s\)/.test(document.querySelector('#replica-peer-state').textContent),
     null, { timeout: 20_000 });
@@ -194,7 +200,8 @@ test('two browser replicas stay ahead of the VPS preview while server sync is pa
       window.__replicaEvents = [];
       document.querySelector('#replica-panel').addEventListener('replica-diagnostic-event', (event) => window.__replicaEvents.push(event.detail));
     })));
-    await Promise.all([alicePage, bobPage].map((page) => page.locator('#replica-resume-server').click()));
+    await Promise.all([alicePage, bobPage].map((page) => page.locator('#replica-toggle-server').click()));
+    await Promise.all([alicePage, bobPage].map((page) => page.getByRole('button', { name: 'Pausar VPS' }).waitFor()));
     await Promise.all([alicePage, bobPage].map((page) => waitForPreview(page, 'vps', 2)));
     await bobPage.waitForFunction((actionId) => {
       const row = [...document.querySelectorAll('#board-sync-status tr[data-action-id]')]
@@ -222,6 +229,41 @@ test('two browser replicas stay ahead of the VPS preview while server sync is pa
     const durableTimelineText = await durableTimelineRow.textContent();
     assert.match(durableTimelineText, /réplica vps/);
     assert.ok(durableTimelineText.includes(durableEvent.event.observedAt));
+
+    await alicePage.evaluate(async id => {
+      const root = document.querySelector('#replica-panel').cloneNode(true);
+      root.id = 'replica-test-remount';
+      root.querySelector('#replica-history')?.remove();
+      root.querySelector('#replica-previews').replaceChildren();
+      document.body.append(root);
+      const { openBoardSession } = await import('/board.bundle.js');
+      const { mountReplicaPanel } = await import('/replica-panel.js');
+      const session = await openBoardSession(id, { initialServerPaused: true, initialPeerPaused: true });
+      const panel = mountReplicaPanel({ boardId: id, session, root });
+      window.__controlFixture = { root, session, panel, mountReplicaPanel, boardId: id };
+    }, boardId);
+    const rebuiltControls = alicePage.locator('#replica-test-remount');
+    await rebuiltControls.getByRole('button', { name: 'Retomar VPS' }).waitFor();
+    await rebuiltControls.getByRole('button', { name: 'Retomar P2P' }).waitFor();
+    await alicePage.evaluate(() => {
+      const fixture = window.__controlFixture;
+      fixture.panel.destroy();
+      fixture.panel = fixture.mountReplicaPanel({ boardId: fixture.boardId, session: fixture.session, root: fixture.root });
+    });
+    await rebuiltControls.getByRole('button', { name: 'Retomar VPS' }).waitFor();
+    await rebuiltControls.getByRole('button', { name: 'Retomar P2P' }).waitFor();
+    await alicePage.evaluate(() => {
+      window.__controlFixture.session.resumeServerSync();
+      window.__controlFixture.session.resumePeerSync();
+    });
+    await rebuiltControls.getByRole('button', { name: 'Pausar VPS' }).waitFor();
+    await rebuiltControls.getByRole('button', { name: 'Pausar P2P' }).waitFor();
+    await alicePage.evaluate(async () => {
+      window.__controlFixture.panel.destroy();
+      await window.__controlFixture.session.destroy();
+      window.__controlFixture.root.remove();
+      delete window.__controlFixture;
+    });
   } finally {
     await aliceContext?.close();
     await bobContext?.close();

@@ -19,6 +19,8 @@ const pendingRequestsPanel = document.querySelector('#pending-requests-panel');
 const pendingRequestsList = document.querySelector('#pending-requests');
 const membersPanel = document.querySelector('#members-panel');
 const membersList = document.querySelector('#board-members');
+const workspaceSidebar = document.querySelector('#workspace-sidebar');
+const workspaceModeButtons = [...document.querySelectorAll('[data-workspace-mode]')];
 let currentAccountId = null;
 let mountedBoard = null;
 let mountedStudyUI = null;
@@ -30,6 +32,17 @@ let unobserveBoardEvents = [];
 let boardSession = null;
 let accessPolling = null;
 let pendingRequestsVersion = 0;
+
+function setWorkspaceMode(mode) {
+  workspaceSidebar.dataset.mode = mode;
+  for (const button of workspaceModeButtons) {
+    button.setAttribute('aria-pressed', String(button.dataset.workspaceMode === mode));
+  }
+}
+
+for (const button of workspaceModeButtons) {
+  button.addEventListener('click', () => setWorkspaceMode(button.dataset.workspaceMode));
+}
 
 function stopAccessPolling() {
   if (accessPolling) clearInterval(accessPolling.timer);
@@ -210,6 +223,7 @@ async function loadBoard(boardId) {
   boardDetail.hidden = false;
   const { board } = await requestJson(`/api/boards/${encodeURIComponent(boardId)}`);
   await closeCurrentBoard();
+  setWorkspaceMode('board');
   document.querySelector('#board-title').textContent = board.title;
   document.querySelector('#board-workspace').hidden = true;
   if (!board.isMember) {
@@ -242,6 +256,9 @@ async function loadBoard(boardId) {
     boardId,
     canvas: document.querySelector('#board-canvas'),
     toolbar: document.querySelector('#board-toolbar'),
+    secondaryToolbar: document.querySelector('#board-secondary-actions'),
+    studyToolbar: document.querySelector('#study-toolbar'),
+    presenceContainer: document.querySelector('#replica-panel'),
     doc: boardSession.doc,
     boardSession,
     displayName: document.querySelector('#account-name').textContent,

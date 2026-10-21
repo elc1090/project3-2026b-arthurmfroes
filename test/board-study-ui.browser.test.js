@@ -88,6 +88,7 @@ test('real board page restores study tools, exports shared PNG, saves per board,
       'Completos (Referência)', 'Exercícios dos Slides', 'Incompletos (Para Praticar)',
       'Passos Multiciclo', '🏆 Prova Real (UFSM)',
     ].sort());
+    await page.getByRole('button', { name: 'Estudo', exact: true }).click();
     await page.locator('#study-gallery-toggle').click();
     for (const category of categories) {
       await page.locator(`[data-study-filter="${category}"]`).click();
@@ -122,10 +123,10 @@ test('real board page restores study tools, exports shared PNG, saves per board,
     await page.locator('#study-sidebar-toggle').click();
 
     const canvas = page.locator('#board-canvas');
-    await canvas.scrollIntoViewIfNeeded();
-    const box = await canvas.boundingBox();
     const draw = async (tool, start, end) => {
       await page.locator(`[data-board-tool="${tool}"]`).click();
+      await canvas.scrollIntoViewIfNeeded();
+      const box = await canvas.boundingBox();
       await page.mouse.move(box.x + start.x, box.y + start.y);
       await page.mouse.down();
       await page.mouse.move(box.x + end.x, box.y + end.y, { steps: 4 });
@@ -135,6 +136,8 @@ test('real board page restores study tools, exports shared PNG, saves per board,
     await draw('rectangle', { x: 20, y: 30 }, { x: 110, y: 90 });
     await draw('pen', { x: 30, y: 140 }, { x: 180, y: 140 });
     await page.locator('[data-board-tool="text"]').click();
+    await canvas.scrollIntoViewIfNeeded();
+    const box = await canvas.boundingBox();
     await page.mouse.click(box.x + 220, box.y + 210);
     try {
       await page.locator('#board-canvas-text-input').waitFor({ state: 'visible', timeout: 5_000 });
@@ -160,6 +163,7 @@ test('real board page restores study tools, exports shared PNG, saves per board,
     assert.ok(elementTypes.includes('image'));
 
     const downloadPromise = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Quadro', exact: true }).click();
     await page.locator('#study-export-png').click();
     const download = await downloadPromise;
     assert.match(download.suggestedFilename(), /^whiteboard_mips_\d+\.png$/);
@@ -170,6 +174,7 @@ test('real board page restores study tools, exports shared PNG, saves per board,
     page.on('request', request => {
       if (request.url().endsWith(`/api/boards/${boardId}/study/image`) && request.method() === 'POST') saveRequests.push(request);
     });
+    await page.getByRole('button', { name: 'Estudo', exact: true }).click();
     await page.locator('#study-save-image').click();
     await page.getByText(/Imagem do quadro salva para análise/).waitFor({ timeout: 15_000 });
     assert.equal(saveRequests.length, 1);
@@ -192,6 +197,10 @@ test('real board page restores study tools, exports shared PNG, saves per board,
       const stroke = elements.find(element => element.type === 'path');
       const text = elements.find(element => element.type === 'text');
       const image = elements.find(element => element.type === 'image');
+      const strokeX = Math.min(...stroke.geometry.points.map(point => point.x));
+      const strokeY = Math.min(...stroke.geometry.points.map(point => point.y));
+      const strokeWidth = Math.max(...stroke.geometry.points.map(point => point.x)) - strokeX;
+      const strokeHeight = Math.max(...stroke.geometry.points.map(point => point.y)) - strokeY;
       const minX = Math.min(rectangle.geometry.x, ...stroke.geometry.points.map(point => point.x), text.geometry.x, image.geometry.x);
       const minY = Math.min(rectangle.geometry.y, ...stroke.geometry.points.map(point => point.y), text.geometry.y, image.geometry.y);
       const offsetX = 50 - minX;
@@ -213,7 +222,8 @@ test('real board page restores study tools, exports shared PNG, saves per board,
         height: bitmap.height,
         rectangleRed: count(offsetX + rectangle.geometry.x - 3, offsetY + rectangle.geometry.y - 3,
           rectangle.geometry.width + 6, rectangle.geometry.height + 6, red),
-        strokeRed: count(offsetX + 30, offsetY + 137, 150, 7, red),
+        strokeRed: count(offsetX + strokeX - 4, offsetY + strokeY - 4,
+          Math.max(1, strokeWidth) + 8, Math.max(1, strokeHeight) + 8, red),
         textRed: count(offsetX + text.geometry.x, offsetY + text.geometry.y, 100, 35, red),
         imageDark: count(offsetX + image.geometry.x + 10, offsetY + image.geometry.y + 10,
           image.geometry.width - 20, image.geometry.height - 20, dark),

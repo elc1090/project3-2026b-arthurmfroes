@@ -32,7 +32,6 @@ export function mountBoardStudyUI({ boardId, canvas, mountedBoard }) {
   const templateCards = document.querySelector('#study-template-cards');
   const templateSelect = document.querySelector('#study-template-select');
   const questionList = document.querySelector('#study-question-list');
-  const studyLayout = document.querySelector('#study-layout');
   const sidebar = document.querySelector('#study-sidebar');
   const sidebarToggle = document.querySelector('#study-sidebar-toggle');
   const sidebarClose = document.querySelector('#study-sidebar-close');
@@ -59,7 +58,6 @@ export function mountBoardStudyUI({ boardId, canvas, mountedBoard }) {
   function setSidebarOpen(open) {
     sidebar.hidden = !open;
     sidebarToggle.setAttribute('aria-expanded', String(open));
-    studyLayout.style.gridTemplateColumns = open ? 'minmax(0, 1fr) minmax(16rem, 21rem)' : '1fr';
   }
 
   function applyFilter(category) {
