@@ -129,9 +129,9 @@ test('two browser replicas stay ahead of the VPS preview while server sync is pa
     await Promise.all([alicePage, bobPage].map((page) => page.locator('#replica-toggle-server').click()));
     await Promise.all([alicePage, bobPage].map((page) => page.getByRole('button', { name: 'Retomar VPS' }).waitFor()));
     await Promise.all([alicePage, bobPage].map((page) => page.getByText('Conexão VPS: pausada neste navegador').waitFor()));
-    await alicePage.getByRole('button', { name: 'Estudo', exact: true }).click();
+    await alicePage.locator('#study-gallery-toggle').click();
     await alicePage.locator('[data-board-template-add]').click();
-    await alicePage.getByRole('button', { name: 'Experimento', exact: true }).click();
+    await alicePage.locator('#study-gallery-close').click();
     await waitForPreview(alicePage, 'local', 1);
     await bobPage.waitForFunction(() =>
       [...document.querySelectorAll('.replica-preview-card')].some((card) =>

@@ -60,7 +60,7 @@ export async function openDatabase(
   return db;
 }
 
-const contentTypes = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8' };
+const contentTypes = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.woff2': 'font/woff2' };
 
 export async function createAppServer(options = {}) {
   const db = options.db ?? await openDatabase();

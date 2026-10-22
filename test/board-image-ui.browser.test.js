@@ -231,11 +231,9 @@ test('the real board page exposes processor diagrams and accepts clipboard image
     assert.equal(await page.locator('#board-title').textContent(), 'Real image page');
     assert.equal(await page.locator('[data-board-image-add]').isVisible(), true);
     assert.equal(await page.locator('#board-image-hint').isVisible(), true);
-    assert.equal(await page.locator('#study-gallery-toggle').isVisible(), false);
+    assert.equal(await page.locator('#study-gallery-toggle').isVisible(), true, 'diagram gallery is a board tool');
     assert.equal(await page.locator('#replica-panel').isVisible(), false);
     await page.evaluate(() => { window.__originalCanvas = document.querySelector('#board-canvas'); });
-    await page.getByRole('button', { name: 'Estudo', exact: true }).click();
-    assert.equal(await page.locator('#study-gallery-toggle').isVisible(), true);
     await page.locator('#study-gallery-toggle').click();
     await page.locator('#study-gallery').waitFor({ state: 'visible' });
     await page.locator('.study-template-card').filter({ hasText: 'Completo Multi Fsm 10 Estados' })
@@ -268,7 +266,7 @@ test('the real board page exposes processor diagrams and accepts clipboard image
     }, boardId, { timeout: 10_000 });
     await page.getByRole('button', { name: 'Experimento', exact: true }).click();
     assert.equal(await page.locator('#replica-panel').isVisible(), true);
-    assert.equal(await page.locator('#study-gallery-toggle').isVisible(), false);
+    assert.equal(await page.locator('#study-gallery-toggle').isVisible(), true);
     assert.equal(await page.evaluate(() => document.querySelector('#board-canvas') === window.__originalCanvas), true);
     await page.getByRole('button', { name: 'Quadro', exact: true }).click();
     assert.equal(await page.locator('[data-board-image-add]').isVisible(), true);

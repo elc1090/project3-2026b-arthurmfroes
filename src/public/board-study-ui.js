@@ -90,6 +90,11 @@ export function mountBoardStudyUI({ boardId, canvas, mountedBoard }) {
     const card = document.createElement('article');
     card.className = 'study-template-card';
     card.dataset.templateCategory = template.category;
+    const thumbnail = document.createElement('img');
+    thumbnail.className = 'study-template-thumb';
+    thumbnail.src = template.url;
+    thumbnail.alt = '';
+    thumbnail.loading = 'lazy';
     const category = document.createElement('small');
     category.textContent = `${template.badge || 'Diagrama'} · ${template.category}`;
     const title = document.createElement('strong');
@@ -100,7 +105,7 @@ export function mountBoardStudyUI({ boardId, canvas, mountedBoard }) {
     button.type = 'button';
     button.textContent = 'Acrescentar ao quadro';
     button.addEventListener('click', () => { void insertTemplate(template); });
-    card.append(category, title, description, button);
+    card.append(thumbnail, category, title, description, button);
     return card;
   }
 

@@ -67,10 +67,12 @@ test('access request and approval appear in two open browsers without reload', {
       window.originalReplicaPanel = document.querySelector('#replica-panel');
     });
     await requesterPage.goto(url);
-    await requesterPage.locator('#access-request-panel').waitFor({ state: 'visible' });
+    const requesterRow = requesterPage.locator(`#board-list li[data-board-id="${boardId}"]`);
+    await requesterRow.waitFor({ state: 'visible' });
+    assert.equal(await requesterRow.evaluate((row) => row.classList.contains('is-focus')), true);
     assert.equal(await requesterPage.locator('#board-workspace').isVisible(), false);
-    await requesterPage.locator('#access-request-form button[type="submit"]').click();
-    await requesterPage.getByText('Seu pedido está aguardando a aprovação de um membro.').waitFor();
+    await requesterRow.getByRole('button', { name: 'Solicitar acesso a Live access test' }).click();
+    await requesterRow.and(requesterPage.locator('[data-state="requested"]')).getByText('Solicitado').waitFor();
     await ownerPage.getByRole('button', { name: 'Aceitar pedido de requester' }).waitFor({ timeout: 12_000 });
     assert.equal(await ownerPage.evaluate(() => document.querySelector('#board-canvas') === window.originalCanvas
       && document.querySelector('#replica-panel') === window.originalReplicaPanel), true);
