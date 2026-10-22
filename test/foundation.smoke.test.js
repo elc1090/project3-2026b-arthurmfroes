@@ -28,13 +28,13 @@ test('foundation serves its static entry and applies the SQLite foundation migra
     assert.equal(malformedPath.status, 400);
 
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map(({ name }) => name);
-    for (const table of ['accounts', 'sessions', 'boards', 'memberships', 'access_requests', 'board_updates', 'board_checkpoints', 'assets', 'diagnostic_events', 'persistence_batches']) {
+    for (const table of ['accounts', 'sessions', 'boards', 'memberships', 'access_requests', 'board_updates', 'board_checkpoints', 'assets', 'diagnostic_events', 'persistence_batches', 'persistence_trace_events', 'persistence_trace_state', 'persistence_trace_floors']) {
       assert.ok(tables.includes(table), `missing migration table: ${table}`);
     }
-    assert.deepEqual(db.prepare('SELECT version FROM schema_migrations ORDER BY version').all(), [1, 2, 3, 4, 5].map(version => ({ version })));
+    assert.deepEqual(db.prepare('SELECT version FROM schema_migrations ORDER BY version').all(), [1, 2, 3, 4, 5, 6].map(version => ({ version })));
 
     const reopened = await openDatabase(join(directory, 'test.sqlite'));
-    assert.deepEqual(reopened.prepare('SELECT version FROM schema_migrations ORDER BY version').all(), [1, 2, 3, 4, 5].map(version => ({ version })));
+    assert.deepEqual(reopened.prepare('SELECT version FROM schema_migrations ORDER BY version').all(), [1, 2, 3, 4, 5, 6].map(version => ({ version })));
     reopened.close();
   } finally {
     server.close();

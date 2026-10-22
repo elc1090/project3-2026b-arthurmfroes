@@ -1,4 +1,4 @@
-const CHANNELS = ['websocket', 'webrtc', 'http'];
+const CHANNELS = ['websocket', 'webrtc', 'http', 'diagnostic'];
 const DIRECTIONS = ['sent', 'received'];
 
 function emptyCounters() {
@@ -70,6 +70,7 @@ export function createSyncExperimentMetrics() {
       }
       record('websocket', direction, payloadLength(payload), category, { update });
     },
+    recordDiagnostic(direction, payload) { record('diagnostic', direction, payloadLength(payload), 'other'); },
     recordHttp(direction, payload, message = null) {
       const update = typeof message?.update === 'string' && decodeBase64Length(message.update) > 2;
       record('http', direction, payloadLength(payload), 'sync', { update });

@@ -1,4 +1,4 @@
-import { createHash, generateKeyPairSync, sign } from 'node:crypto';
+import { createHash, generateKeyPairSync, sign, randomUUID } from 'node:crypto';
 import * as Y from 'yjs';
 import { getAuthenticatedSession } from './auth.js';
 import { authorizeBoardMembership } from './boards.js';
@@ -8,9 +8,20 @@ const MAX_BODY = 4 * 1024 * 1024;
 const MAX_UPDATE = 3 * 1024 * 1024;
 
 /** HTTP content sync without room-wide server fanout. Legacy WS stays available. */
-export function createRoomPersistenceHandler(db, store, onCommitted = () => {}, onReceived = () => {}) {
+export function createRoomPersistenceHandler(db, store, onCommitted = () => {}, onReceived = () => {}, traceStore = null) {
   const { privateKey, publicKey } = generateKeyPairSync('ed25519');
   const key = publicKey.export({ format: 'jwk' });
+  const traceSessionId = randomUUID(); let traceSequence = 0;
+  function trace(type, boardId, session, input, data = {}, receiptId) {
+    if (!traceStore || !input.batchId) return;
+    const context = input.trace && typeof input.trace === 'object' && Object.keys(input.trace).every((key) => ['attemptId', 'electionViewId', 'traceSessionId', 'docClientId'].includes(key))
+      && Object.values(input.trace).every((value) => typeof value === 'string' && value.length > 0 && value.length <= 200) ? input.trace : {};
+    const event = { version: 1, eventId: randomUUID(), boardId, traceSessionId, docClientId: context.docClientId ?? 'vps', sequence: ++traceSequence,
+      type, observedAt: new Date().toISOString(), monotonicMs: performance.now(), batchId: input.batchId,
+      ...(context.attemptId ? { attemptId: context.attemptId } : {}), ...(context.electionViewId ? { electionViewId: context.electionViewId } : {}), ...(receiptId ? { receiptId } : {}), data };
+    try { traceStore.append(boardId, { key: 'vps', accountId: session.accountId, username: session.username, source: 'server' }, [event]); }
+    catch { /* Diagnostics cannot change the commit or the persistence ACK. */ }
+  }
   const find = db.prepare('SELECT digest, committed_at FROM persistence_batches WHERE board_id = ? AND batch_id = ?');
   const insert = db.prepare('INSERT INTO persistence_batches (board_id, batch_id, digest, committed_at) VALUES (?, ?, ?, ?)');
   const commit = db.transaction((boardId, accountId, batchId, bytes) => {
@@ -66,14 +77,18 @@ export function createRoomPersistenceHandler(db, store, onCommitted = () => {}, 
         // Validate against durable state before committing any bytes.
         const probe = store.loadDocument(boardId);
         try { Y.applyUpdate(probe, bytes); } finally { probe.destroy(); }
+        trace('server-received', boardId, session, input, { updateBytes: bytes.byteLength, digest: `sha256:${createHash('sha256').update(bytes).digest('hex')}` });
+        const deduplicated = Boolean(find.get(boardId, input.batchId));
         onReceived({ boardId, bytes, updateId: input.batchId });
         committedAt = commit.immediate(boardId, session.accountId, input.batchId, bytes);
+        trace('server-committed', boardId, session, input, { committedAt, deduplicated });
         onCommitted({ boardId, bytes, updateId: input.batchId, committedAt });
       }
       const doc = store.loadDocument(boardId);
       try {
         const payload = { boardId, batchId: input.batchId ?? null, committedAt, coverage: documentCoverage(doc) };
         const signature = sign(null, Buffer.from(JSON.stringify(payload)), privateKey).toString('base64');
+        if (input.update !== undefined) response.once('finish', () => trace('server-ack-sent', boardId, session, input, { committedAt }, `sha256:${createHash('sha256').update(signature).digest('hex')}`));
         send(200, { key, receipt: { payload, signature }, update: encodeBytes(Y.encodeStateAsUpdate(doc, vector)) });
       } finally { doc.destroy(); }
     } catch (error) {

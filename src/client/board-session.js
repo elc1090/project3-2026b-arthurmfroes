@@ -3,6 +3,7 @@ import { openOfflineBoard } from './offline-board.js';
 import { createBoardSyncStatus } from './board-sync-status.js';
 import { createBoardPresence } from './board-presence.js';
 import { createRoomPersistence } from './room-persistence.js';
+import { createPersistenceTrace } from './persistence-trace.js';
 import { createSyncEventTracker } from './sync-event-tracker.js';
 import { attachWebrtcPayloadMetrics, createSyncExperimentMetrics } from './sync-experiment.js';
 
@@ -20,6 +21,8 @@ export async function openBoardSession(boardId, {
   initialPeerPaused = false,
   onEvent = () => {},
   persistenceTiming = {},
+  traceIdentity = {},
+  traceOptions = {},
 } = {}) {
   if (typeof fetchImpl !== 'function' || !locationHref) {
     throw new Error('A browser fetch implementation and location are required');
@@ -57,6 +60,7 @@ export async function openBoardSession(boardId, {
   const eventTracker = createSyncEventTracker(boardId, { onEvent: emit });
   const boardPresence = createBoardPresence(boardId, emit);
 
+  const persistenceTrace = createPersistenceTrace(boardId, doc.clientID, { ...traceIdentity, ...traceOptions, fetchImpl, locationHref, metrics: experimentMetrics, onStatus: (detail) => dispatch('persistence-trace-status', detail) });
   const serverSync = createRoomPersistence(doc, boardId, {
     fetchImpl,
     timing: persistenceTiming,
@@ -65,6 +69,7 @@ export async function openBoardSession(boardId, {
     onEvent: emit,
     eventTracker,
     experimentMetrics,
+    trace: persistenceTrace,
   });
 
   function onDocumentUpdate(update, origin) {
@@ -151,6 +156,7 @@ export async function openBoardSession(boardId, {
     if (previousProvider) void disposePeerProvider(previousProvider);
     serverSync.pause();
     serverSync.destroy();
+    void persistenceTrace.destroy();
     publishPeerState();
     emit(type, { boardId, epoch: peerEpoch, ...detail });
   }
@@ -272,8 +278,10 @@ export async function openBoardSession(boardId, {
     get peerSyncPaused() { return peerPaused; },
     get syncStatus() { return syncStatus.getSnapshot(); },
     get persistenceStatus() { return serverSync.persistenceStatus; },
+    get persistenceTrace() { return persistenceTrace; },
     get experimentMetrics() { return experimentMetrics.snapshot(); },
     resetExperimentMetrics() { experimentMetrics.reset(); },
+    recordDiagnosticTraffic(direction, payload) { experimentMetrics.recordDiagnostic(direction, payload); },
     get p2pPeerCount() {
       return [...(peerProvider?.room?.webrtcConns?.values() ?? [])].filter((connection) => connection.connected).length;
     },
@@ -321,7 +329,7 @@ export async function openBoardSession(boardId, {
       const activeProvider = peerProvider;
       peerProvider = null;
       if (activeProvider) disposePeerProvider(activeProvider);
-      destroyPromise = Promise.resolve(activeProvider?.key).then(() => offline.destroy());
+      destroyPromise = Promise.all([Promise.resolve(activeProvider?.key), persistenceTrace.destroy()]).then(() => offline.destroy());
       return destroyPromise;
     },
   });

@@ -54,7 +54,7 @@ export function mountSyncExperimentUI({ session, container, boardId = null, repl
   function render() {
     if (destroyed) return;
     const metrics = session.experimentMetrics;
-    summary.textContent = ['websocket', 'webrtc', 'http'].filter(channel => metrics[channel]).map(channel => {
+    summary.textContent = ['websocket', 'webrtc', 'http', 'diagnostic'].filter(channel => metrics[channel]).map(channel => {
       const sent = metrics[channel].sent;
       const received = metrics[channel].received;
       return `${channel}: enviados ${sent.bytes} B / ${sent.updateMessages} updates / ${sent.awarenessBytes} B Awareness; recebidos ${received.bytes} B / ${received.updateMessages} updates / ${received.awarenessBytes} B Awareness`;

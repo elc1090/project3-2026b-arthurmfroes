@@ -1,6 +1,7 @@
 import { mountReplicaPanel } from './replica-panel.js';
 import { mountBoardTimelineUI } from './board-timeline-ui.js';
 import { mountBoardSyncStatusUI } from './board-sync-status-ui.js';
+import { mountPersistenceHistory } from './persistence-history-ui.js';
 
 const message = document.querySelector('#message');
 const loginForm = document.querySelector('#login-form');
@@ -28,6 +29,7 @@ let mountedReplicaPanel = null;
 let mountedTimeline = null;
 let mountedSyncStatusUI = null;
 let mountedSyncExperimentUI = null;
+let mountedPersistenceHistory = null;
 let unobserveBoardEvents = [];
 let boardSession = null;
 let accessPolling = null;
@@ -87,6 +89,8 @@ async function closeCurrentBoard() {
   for (const unsubscribe of unobserveBoardEvents) unsubscribe?.();
   unobserveBoardEvents = [];
   document.querySelector('#replica-panel')?.removeEventListener('replica-diagnostic-event', onReplicaDiagnosticEvent);
+  mountedPersistenceHistory?.destroy();
+  mountedPersistenceHistory = null;
   mountedTimeline?.destroy();
   mountedTimeline = null;
   mountedSyncStatusUI?.destroy();
@@ -379,7 +383,7 @@ async function loadBoard(boardId) {
     import('/board.bundle.js'),
     import('/board-study-ui.js'),
   ]);
-  boardSession = await openBoardSession(boardId);
+  boardSession = await openBoardSession(boardId, { traceIdentity: { accountId: currentAccountId, username: document.querySelector('#account-name').textContent } });
   mountedBoard = mountBoardCanvas({
     boardId,
     canvas: document.querySelector('#board-canvas'),
@@ -401,6 +405,7 @@ async function loadBoard(boardId) {
   mountedTimeline = mountBoardTimelineUI({ session: boardSession, container: document.querySelector('#board-timeline') });
   mountedSyncStatusUI = mountBoardSyncStatusUI({ session: boardSession, container: document.querySelector('#board-sync-status') });
   mountedSyncExperimentUI = mountSyncExperimentUI({ session: boardSession, container: document.querySelector('#sync-experiment'), boardId, replicaId: sessionStorage.getItem(`t3-replica:${boardId}`) });
+  mountedPersistenceHistory = mountPersistenceHistory({ session: boardSession, boardId, container: document.querySelector('#persistence-history'), isActive: () => sidebarOpen() && workspaceSidebar.dataset.mode === 'experiment' && !boardDetail.hidden });
   const replicaPanelRoot = document.querySelector('#replica-panel');
   replicaPanelRoot.addEventListener('replica-diagnostic-event', onReplicaDiagnosticEvent);
   for (const type of ['update-observed', 'sync-batch']) {

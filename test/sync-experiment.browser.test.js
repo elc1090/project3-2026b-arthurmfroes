@@ -276,7 +276,10 @@ test('same Canvas edit script exports measured hybrid and server-only traffic an
       'WebRTC Awareness traffic is counted separately from Yjs update messages');
     assert.equal(serverOnly.replicas.alice.webrtc.sent.bytes + serverOnly.replicas.bob.webrtc.sent.bytes, 0);
     for (const run of runs) {
-      assert.ok(run.replicas.alice.http.sent.bytes > 0 && run.replicas.alice.http.received.bytes > 0);
+      const http = Object.values(run.replicas).map((replica) => replica.http);
+      assert.ok(http.some((counter) => counter.sent.bytes > 0 && counter.received.bytes > 0),
+        'at least the representative exchanges content over HTTP; a hybrid follower can receive its ACK only through P2P');
+      if (run.mode === 'server-only') assert.ok(http.every((counter) => counter.sent.bytes > 0 && counter.received.bytes > 0));
       assert.ok(run.replicas.alice.http.sent.updateMessages + run.replicas.bob.http.sent.updateMessages > 0);
     }
   } finally {

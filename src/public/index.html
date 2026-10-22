@@ -468,6 +468,21 @@
       .board-timeline__events li { padding: .5rem .6rem; border: 1px solid var(--line); border-radius: var(--radius); font-size: .85rem; }
       .board-timeline__events p { margin: .15rem 0; }
       #sync-experiment button { margin: .2rem .35rem .2rem 0; }
+      .persistence-history { border-top: 1px solid var(--line, #dedee6); padding-top: 1rem; margin-top: 1rem; }
+      .persistence-history h2 { font-size: 1.15rem; }
+      .persistence-history p, .persistence-history small { overflow-wrap: anywhere; }
+      .trace-filters { display: grid; gap: .5rem; margin: .75rem 0; }
+      .trace-filters input, .trace-filters select { display: block; width: 100%; min-width: 0; }
+      .trace-batch { padding: .65rem; margin: .6rem 0; border: 1px solid #dedee6; border-radius: .5rem; }
+      .persistence-history summary { cursor: pointer; overflow-wrap: anywhere; }
+      .trace-stage { margin-bottom: .75rem; }
+      .trace-stage p { margin: .2rem 0; }
+      .trace-election { overflow-x: auto; margin: .5rem 0; }
+      .trace-candidates { width: 100%; border-collapse: collapse; font-size: .8rem; }
+      .trace-candidates th, .trace-candidates td { text-align: left; border-bottom: 1px solid #dedee6; padding: .35rem; overflow-wrap: anywhere; }
+      .trace-comparison { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: .75rem; }
+      .trace-attempt { margin-top: .75rem; }
+      .trace-pause-note { font-size: .85rem; }
       #sync-experiment pre { padding: .6rem; border-radius: var(--radius); background: #f5f5fa; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .75rem; }
 
       @media (max-width: 900px) {
@@ -714,9 +729,11 @@
                 <button id="replica-toggle-server" type="button">Pausar VPS</button>
                 <button id="replica-toggle-peer" type="button">Pausar P2P</button>
               </div>
+              <p class="trace-pause-note">Pausar VPS afeta esta aba; outro participante pode continuar gravando. O diagnóstico continua disponível.</p>
               <p id="replica-panel-status" role="status" aria-live="polite">Canal de diagnóstico desconectado.</p>
               <div id="replica-previews" aria-live="polite"></div>
             </section>
+            <div id="persistence-history" data-pane="experiment"></div>
             <div id="board-sync-status" data-pane="experiment"></div>
             <div id="board-timeline" data-pane="experiment"></div>
             <div id="sync-experiment" data-pane="experiment"></div>
