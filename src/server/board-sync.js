@@ -81,6 +81,20 @@ export function attachBoardSync(server, { db, updateStore, onSyncEvent = () => {
     });
   });
 
+  const roomEvent = (type, { boardId, bytes, updateId, committedAt }) => {
+    emitSyncEvent(type, { boardId, updateId, committedAt, actionId: updateDigest(bytes), updateBytes: bytes.byteLength,
+      sourcePath: type === 'durable-persisted' ? 'sqlite' : 'client', firstArrivalPath: 'client' });
+  };
+  const onRoomReceived = (detail) => roomEvent('server-received', detail);
+  const onRoomPersisted = ({ boardId, bytes, updateId, committedAt }) => {
+    roomEvent('durable-persisted', { boardId, bytes, updateId, committedAt });
+    const replica = replicas.get(boardId);
+    if (!replica) return;
+    Y.applyUpdate(replica.doc, bytes);
+    broadcastUpdate({ replica }, updateId, updateDigest(bytes), bytes);
+  };
+  server.on('room-update-received', onRoomReceived);
+  server.on('room-persisted', onRoomPersisted);
   server.once('close', dispose);
   return dispose;
 
@@ -227,6 +241,8 @@ export function attachBoardSync(server, { db, updateStore, onSyncEvent = () => {
   function dispose() {
     if (disposed) return;
     disposed = true;
+    server.off('room-persisted', onRoomPersisted);
+    server.off('room-update-received', onRoomReceived);
     for (const client of webSockets.clients) client.terminate();
     for (const replica of replicas.values()) replica.doc.destroy();
     replicas.clear();

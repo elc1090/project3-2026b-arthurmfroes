@@ -4,7 +4,7 @@ import {
   exportSyncExperimentJson,
 } from './sync-experiment.js';
 
-const BYTE_SCOPE = 'Payload da aplicação: JSON UTF-8 no WebSocket e frames binários no datachannel. Não inclui overhead WS/TCP/TLS/SCTP/DTLS/IP nem retransmissões.';
+const BYTE_SCOPE = 'Payload da aplicação: JSON UTF-8 em HTTP/WebSocket e frames binários no datachannel. Não inclui overhead WS/TCP/TLS/SCTP/DTLS/IP nem retransmissões.';
 const REFRESH_INTERVAL_MS = 500;
 
 /** Mount live, per-session traffic counters with reset and local JSON/CSV export. */
@@ -54,7 +54,7 @@ export function mountSyncExperimentUI({ session, container, boardId = null, repl
   function render() {
     if (destroyed) return;
     const metrics = session.experimentMetrics;
-    summary.textContent = ['websocket', 'webrtc'].map(channel => {
+    summary.textContent = ['websocket', 'webrtc', 'http'].filter(channel => metrics[channel]).map(channel => {
       const sent = metrics[channel].sent;
       const received = metrics[channel].received;
       return `${channel}: enviados ${sent.bytes} B / ${sent.updateMessages} updates / ${sent.awarenessBytes} B Awareness; recebidos ${received.bytes} B / ${received.updateMessages} updates / ${received.awarenessBytes} B Awareness`;

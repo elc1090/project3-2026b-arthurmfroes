@@ -164,7 +164,7 @@ test('same Canvas edit script exports measured hybrid and server-only traffic an
         bobPage.evaluate(() => window.__session.resetExperimentMetrics()),
       ]);
       assert.deepEqual(await Promise.all([alicePage, bobPage].map(page => page.evaluate(() => window.__session.serverStatus))),
-        ['connected', 'connected'], 'the direct comparison keeps the VPS WebSocket active in both modes');
+        ['connected', 'connected'], 'the direct comparison keeps the VPS HTTP persistence active in both modes');
       const start = performance.now();
 
       await drawRectangle(alicePage, 25, 30);
@@ -211,7 +211,8 @@ test('same Canvas edit script exports measured hybrid and server-only traffic an
       };
       return {
         mode,
-        vpsWebSocket: 'active',
+        vpsWebSocket: 'inactive',
+        vpsPersistence: 'http',
         p2p: mode === 'hybrid' ? 'active' : 'paused',
         replicas,
         firstVisibleMs,
@@ -233,7 +234,7 @@ test('same Canvas edit script exports measured hybrid and server-only traffic an
   try {
     const runs = [await runMode('hybrid'), await runMode('server-only')];
     const comparison = createSyncExperimentComparison({
-      scenario: 'Same two rectangle actions with VPS WebSocket active in both modes; wait for client convergence and VPS durable ACK',
+      scenario: 'Same two rectangle actions with VPS HTTP persistence active in both modes; wait for client convergence and VPS durable ACK',
       separateDemonstration: {
         scenario: 'hybrid-vps-paused',
         evidenceTest: 'test/board-session.browser.test.js',
@@ -246,12 +247,12 @@ test('same Canvas edit script exports measured hybrid and server-only traffic an
     const csv = exportSyncExperimentCsv(comparison);
     assert.equal(JSON.parse(json).runs.length, 2);
     assert.equal(JSON.parse(json).separateDemonstration.includedInComparison, false);
-    assert.deepEqual(JSON.parse(json).runs.map(run => [run.vpsWebSocket, run.p2p]), [
-      ['active', 'active'],
-      ['active', 'paused'],
+    assert.deepEqual(JSON.parse(json).runs.map(run => [run.vpsPersistence, run.p2p]), [
+      ['http', 'active'],
+      ['http', 'paused'],
     ]);
-    assert.match(csv, /hybrid,active,active,alice,webrtc,sent/);
-    assert.match(csv, /server-only,active,paused,bob,websocket,received/);
+    assert.match(csv, /hybrid,inactive,active,alice,webrtc,sent/);
+    assert.match(csv, /server-only,inactive,paused,bob,http,received/);
     assert.match(comparison.trafficScope, /excludes WS\/TCP\/TLS\/SCTP\/DTLS\/IP overhead/);
     if (process.env.SYNC_EXPERIMENT_OUTPUT_DIR) {
       await mkdir(process.env.SYNC_EXPERIMENT_OUTPUT_DIR, { recursive: true });
@@ -275,8 +276,8 @@ test('same Canvas edit script exports measured hybrid and server-only traffic an
       'WebRTC Awareness traffic is counted separately from Yjs update messages');
     assert.equal(serverOnly.replicas.alice.webrtc.sent.bytes + serverOnly.replicas.bob.webrtc.sent.bytes, 0);
     for (const run of runs) {
-      assert.ok(run.replicas.alice.websocket.sent.bytes > 0 && run.replicas.alice.websocket.received.bytes > 0);
-      assert.ok(run.replicas.alice.websocket.sent.updateMessages + run.replicas.bob.websocket.sent.updateMessages > 0);
+      assert.ok(run.replicas.alice.http.sent.bytes > 0 && run.replicas.alice.http.received.bytes > 0);
+      assert.ok(run.replicas.alice.http.sent.updateMessages + run.replicas.bob.http.sent.updateMessages > 0);
     }
   } finally {
     await new Promise(resolve => server.close(resolve));

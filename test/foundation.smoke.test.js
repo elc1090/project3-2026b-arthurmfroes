@@ -28,13 +28,13 @@ test('foundation serves its static entry and applies the SQLite foundation migra
     assert.equal(malformedPath.status, 400);
 
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map(({ name }) => name);
-    for (const table of ['accounts', 'sessions', 'boards', 'memberships', 'access_requests', 'board_updates', 'board_checkpoints', 'assets', 'diagnostic_events']) {
+    for (const table of ['accounts', 'sessions', 'boards', 'memberships', 'access_requests', 'board_updates', 'board_checkpoints', 'assets', 'diagnostic_events', 'persistence_batches']) {
       assert.ok(tables.includes(table), `missing migration table: ${table}`);
     }
-    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count, 1);
+    assert.deepEqual(db.prepare('SELECT version FROM schema_migrations ORDER BY version').all(), [1, 2, 3, 4, 5].map(version => ({ version })));
 
     const reopened = await openDatabase(join(directory, 'test.sqlite'));
-    assert.equal(reopened.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count, 1);
+    assert.deepEqual(reopened.prepare('SELECT version FROM schema_migrations ORDER BY version').all(), [1, 2, 3, 4, 5].map(version => ({ version })));
     reopened.close();
   } finally {
     server.close();

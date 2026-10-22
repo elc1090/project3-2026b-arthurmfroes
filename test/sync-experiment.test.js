@@ -63,11 +63,14 @@ test('payload metrics separate WebSocket envelopes, Yjs updates, and Awareness',
   metrics.recordWebSocket('sent', sentUpdate, JSON.parse(sentUpdate));
   metrics.recordWebSocket('received', receivedSync, JSON.parse(receivedSync));
   metrics.recordWebSocket('received', receivedAck, JSON.parse(receivedAck));
+  metrics.recordHttp('sent', sentUpdate, JSON.parse(sentUpdate));
   metrics.recordWebRtc('sent', new Uint8Array([0, 2, 9, 8])); // sync / Yjs update
   metrics.recordWebRtc('received', new Uint8Array([1, 4, 5])); // Awareness
   metrics.recordWebRtc('received', new Uint8Array([0, 0])); // sync step 1 control
 
   const snapshot = metrics.snapshot();
+  assert.equal(snapshot.http.sent.updateMessages, 1);
+  assert.equal(snapshot.http.sent.bytes, new TextEncoder().encode(sentUpdate).byteLength);
   assert.equal(snapshot.websocket.sent.bytes, new TextEncoder().encode(sentUpdate).byteLength);
   assert.equal(snapshot.websocket.sent.updateMessages, 1);
   assert.equal(snapshot.websocket.sent.otherBytes, 0);
@@ -164,7 +167,7 @@ test('experiment comparison exports paired modes as JSON and CSV', () => {
   const csv = exportSyncExperimentCsv(comparison);
   assert.match(csv, /^scenario,trafficScope,mode,vpsWebSocket,p2p,replica,channel,direction,bytes,messages,updateMessages/);
   assert.match(csv, /"same ""script""/);
-  assert.match(csv, /"same ""script""",WebSocket UTF-8 JSON and WebRTC datachannel payload bytes; excludes WS\/TCP\/TLS\/SCTP\/DTLS\/IP overhead and retransmissions,server-only,active,paused,alice,webrtc,sent,0,0,0,0,0,0,0,4,server,,7,6,2/);
+  assert.match(csv, /"same ""script""",HTTP\/WebSocket UTF-8 JSON and WebRTC datachannel payload bytes; excludes WS\/TCP\/TLS\/SCTP\/DTLS\/IP overhead and retransmissions,server-only,active,paused,alice,webrtc,sent,0,0,0,0,0,0,0,4,server,,7,6,2/);
 });
 
 test('live metrics panel refreshes, resets, and exports one replica as JSON and CSV', () => {

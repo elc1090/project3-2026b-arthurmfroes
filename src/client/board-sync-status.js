@@ -99,6 +99,9 @@ export function createBoardSyncStatus(boardId) {
     }
 
     if (type === 'durable-ack' || type === 'durable-persisted') {
+      // Durable coverage also proves the server received this original update,
+      // even when its diagnostic event identifies a merged batch instead.
+      action.serverReceived = true;
       action.durableServer = true;
       addEvidence(action, type === 'durable-ack' ? 'durable-ack' : 'durable-persisted');
       action.updateId = event.updateId ?? action.updateId;

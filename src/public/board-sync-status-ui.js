@@ -15,6 +15,16 @@ export function mountBoardSyncStatusUI({ session, container, limit = DEFAULT_LIM
   const note = document.createElement('p');
   note.textContent = 'Recebido P2P indica chegada nesta réplica; VPS durável exige confirmação de persistência.';
   root.append(note);
+  const coordination = document.createElement('p');
+  coordination.dataset.persistenceStatus = '';
+  root.append(coordination);
+  function renderCoordination(state = session.persistenceStatus) {
+    if (!state) return;
+    coordination.textContent = state.paused ? 'Persistência pausada' :
+      `Representante: ${state.representative ?? 'elegendo'} · ${state.pending} updates pendentes${state.recovering ? ' · recuperando pela VPS' : ''}`;
+  }
+  renderCoordination();
+  const unsubscribeCoordination = session.on?.('persistence-status', renderCoordination);
   const table = document.createElement('table');
   table.className = 'board-sync-status__table';
   const head = document.createElement('thead');
@@ -91,6 +101,7 @@ export function mountBoardSyncStatusUI({ session, container, limit = DEFAULT_LIM
       if (destroyed) return;
       destroyed = true;
       unsubscribe?.();
+      unsubscribeCoordination?.();
       remoteEvidence.clear();
       root.remove();
     },

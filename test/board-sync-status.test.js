@@ -100,3 +100,13 @@ test('status projection keeps bounded action and aggregate-batch windows', () =>
   assert.equal(snapshot.syncBatches.some(({ batchDigest }) => batchDigest === 'sha256:batch-0'), false);
   assert.equal(snapshot.syncBatches.at(-1).batchDigest, 'sha256:batch-100');
 });
+
+
+test('verified peer receipt confirms server receipt of an original update without a matching batch digest', () => {
+  const status = createBoardSyncStatus('board-a');
+  status.apply('update-observed', { ...base, sourcePath: 'local' });
+  status.apply('durable-ack', { ...base, sourcePath: 'peer-receipt', receiptSignature: 'verified-by-coordinator' });
+  const action = status.getSnapshot().actions[0];
+  assert.equal(action.serverReceived, true);
+  assert.equal(action.durableServer, true);
+});

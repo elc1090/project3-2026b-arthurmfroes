@@ -7,6 +7,7 @@ import { handleAuthRequest } from './auth.js';
 import { handleBoardRequest } from './boards.js';
 import { createBoardUpdateStore } from './board-update-store.js';
 import { attachBoardSync } from './board-sync.js';
+import { createRoomPersistenceHandler } from './room-persistence.js';
 import { attachSignaling, createSignalingState, handleSignalingHttpRequest } from './signaling.js';
 import { handleAssetRequest } from './assets.js';
 import { handleStudyFeatureRequest } from './study-features.js';
@@ -71,9 +72,13 @@ export async function createAppServer(options = {}) {
   const signalingState = options.signalingState ?? createSignalingState(
     process.env.SIGNALING_SECRET ? Buffer.from(process.env.SIGNALING_SECRET) : undefined,
   );
+  const handleRoomPersistence = createRoomPersistenceHandler(db, boardUpdateStore,
+    (detail) => server.emit('room-persisted', detail),
+    (detail) => server.emit('room-update-received', detail));
   let notifyBoardEpochChanged = () => {};
   const server = createServer(async (request, response) => {
     if (await handleAuthRequest(request, response, db, { trustProxy })) return;
+    if (await handleRoomPersistence(request, response)) return;
     if (handleSignalingHttpRequest(request, response, db, signalingState)) return;
     if (await handleAssetRequest(request, response, db, assetStorageDirectory)) return;
     if (await handleBoardRequest(request, response, db, boardUpdateStore, {

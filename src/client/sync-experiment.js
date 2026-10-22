@@ -1,4 +1,4 @@
-const CHANNELS = ['websocket', 'webrtc'];
+const CHANNELS = ['websocket', 'webrtc', 'http'];
 const DIRECTIONS = ['sent', 'received'];
 
 function emptyCounters() {
@@ -69,6 +69,10 @@ export function createSyncExperimentMetrics() {
         try { update = decodeBase64Length(message.update) > 2; } catch { /* malformed payload is still counted */ }
       }
       record('websocket', direction, payloadLength(payload), category, { update });
+    },
+    recordHttp(direction, payload, message = null) {
+      const update = typeof message?.update === 'string' && decodeBase64Length(message.update) > 2;
+      record('http', direction, payloadLength(payload), 'sync', { update });
     },
     recordWebRtc(direction, payload) {
       const bytes = toUint8Array(payload);
@@ -159,7 +163,7 @@ export function createSyncExperimentComparison({
     scenario: String(scenario ?? 'scripted board edits'),
     createdAt,
     timingClock: 'orchestrator-monotonic-ms',
-    trafficScope: 'WebSocket UTF-8 JSON and WebRTC datachannel payload bytes; excludes WS/TCP/TLS/SCTP/DTLS/IP overhead and retransmissions',
+    trafficScope: 'HTTP/WebSocket UTF-8 JSON and WebRTC datachannel payload bytes; excludes WS/TCP/TLS/SCTP/DTLS/IP overhead and retransmissions',
     runs: structuredClone(runs),
   };
   if (separateDemonstration) comparison.separateDemonstration = structuredClone(separateDemonstration);
@@ -179,7 +183,7 @@ export function createLiveSyncMetricsSnapshot({ boardId = null, replicaId = null
     boardId,
     replicaId,
     capturedAt,
-    trafficScope: 'WebSocket UTF-8 JSON and WebRTC datachannel payload bytes; excludes WS/TCP/TLS/SCTP/DTLS/IP overhead and retransmissions',
+    trafficScope: 'HTTP/WebSocket UTF-8 JSON and WebRTC datachannel payload bytes; excludes WS/TCP/TLS/SCTP/DTLS/IP overhead and retransmissions',
     metrics: structuredClone(metrics),
   };
 }

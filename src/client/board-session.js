@@ -2,7 +2,7 @@ import { WebrtcProvider } from 'y-webrtc';
 import { openOfflineBoard } from './offline-board.js';
 import { createBoardSyncStatus } from './board-sync-status.js';
 import { createBoardPresence } from './board-presence.js';
-import { createServerSyncProvider } from './server-sync-provider.js';
+import { createRoomPersistence } from './room-persistence.js';
 import { createSyncEventTracker } from './sync-event-tracker.js';
 import { attachWebrtcPayloadMetrics, createSyncExperimentMetrics } from './sync-experiment.js';
 
@@ -19,6 +19,7 @@ export async function openBoardSession(boardId, {
   initialServerPaused = false,
   initialPeerPaused = false,
   onEvent = () => {},
+  persistenceTiming = {},
 } = {}) {
   if (typeof fetchImpl !== 'function' || !locationHref) {
     throw new Error('A browser fetch implementation and location are required');
@@ -56,8 +57,9 @@ export async function openBoardSession(boardId, {
   const eventTracker = createSyncEventTracker(boardId, { onEvent: emit });
   const boardPresence = createBoardPresence(boardId, emit);
 
-  const serverSync = createServerSyncProvider(doc, boardId, {
-    WebSocketImpl,
+  const serverSync = createRoomPersistence(doc, boardId, {
+    fetchImpl,
+    timing: persistenceTiming,
     locationHref,
     initialServerPaused,
     onEvent: emit,
@@ -115,6 +117,7 @@ export async function openBoardSession(boardId, {
     removeSignalingListeners(provider);
     peerMetricsCleanups.get(provider)?.();
     peerMetricsCleanups.delete(provider);
+    serverSync.detachProvider(provider);
     const releasePresence = boardPresence.releaseProvider(provider);
     const room = provider.room;
     const connections = room ? [...room.webrtcConns.values()] : [];
@@ -236,6 +239,7 @@ export async function openBoardSession(boardId, {
       });
       peerEpoch = access.epoch;
       peerProvider = nextProvider;
+      serverSync.attachProvider(nextProvider);
       peerMetricsCleanups.set(nextProvider, attachWebrtcPayloadMetrics(nextProvider, experimentMetrics));
       void boardPresence.attachProvider(nextProvider).catch((error) => emit('error', error));
       listenForBoardEpoch(nextProvider);
@@ -256,6 +260,7 @@ export async function openBoardSession(boardId, {
     }
   }
 
+  serverSync.setPeerEnabled(!peerPaused);
   if (!peerPaused) void connectPeer();
 
   let destroyPromise;
@@ -266,6 +271,7 @@ export async function openBoardSession(boardId, {
     get p2pStatus() { return { ...peerState }; },
     get peerSyncPaused() { return peerPaused; },
     get syncStatus() { return syncStatus.getSnapshot(); },
+    get persistenceStatus() { return serverSync.persistenceStatus; },
     get experimentMetrics() { return experimentMetrics.snapshot(); },
     resetExperimentMetrics() { experimentMetrics.reset(); },
     get p2pPeerCount() {
@@ -277,6 +283,7 @@ export async function openBoardSession(boardId, {
     pausePeerSync() {
       if (destroyed || peerPaused) return;
       peerPaused = true;
+      serverSync.setPeerEnabled(false);
       peerConnectGeneration += 1;
       if (signalingRetry !== null) clearTimeout(signalingRetry);
       signalingRetry = null;
@@ -287,6 +294,7 @@ export async function openBoardSession(boardId, {
     resumePeerSync() {
       if (destroyed || accessRevoked || !peerPaused) return;
       peerPaused = false;
+      serverSync.setPeerEnabled(true);
       if (peerProvider) peerProvider.connect();
       else void connectPeer();
       boardPresence.resumeAfterConnect();

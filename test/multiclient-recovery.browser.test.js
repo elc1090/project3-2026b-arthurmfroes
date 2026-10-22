@@ -229,6 +229,8 @@ test('isolated profiles converge after partition for property edits, competing m
       await Promise.all([alice, bob].map(page => page.waitForFunction(elementId => window.__read().some(element => element.id === elementId), id, { timeout: 10_000 })));
     };
     const readAndPersist = async () => {
+      // Visibility can precede the periodic persistence batch. Wait for its receipt.
+      await Promise.all([alice, bob].map(page => page.waitForFunction(() => window.__session.persistenceStatus.pending === 0, null, { timeout: 10_000 })));
       const fromAlice = await alice.evaluate(() => window.__read());
       const fromBob = await bob.evaluate(() => window.__read());
       assert.deepEqual(fromAlice, fromBob, 'both browser Y.Docs must converge');
