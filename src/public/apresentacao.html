@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#ffffff">
+  <title>Por dentro do quadro · Whiteboard T3</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='4' y='4' width='24' height='24' rx='6' fill='%236965db'/%3E%3Cpath d='M10 12h12M10 19h8' stroke='white' stroke-width='2'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/apresentacao.css?v=14">
+  <script type="module" src="/apresentacao.js?v=14"></script>
+</head>
+<body>
+  <header class="deck-header">
+    <a href="/" class="brand"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="4" y="4" width="24" height="20" rx="3"/><path d="M11 29l5-5 5 5M10 11h12M10 17h7"/></svg><span>Whiteboard <b>T3</b></span></a>
+    <span class="header-caption">por dentro do quadro</span>
+    <div class="header-actions"><span class="example-label">exemplo ilustrado</span><button id="timer" title="Iniciar ou pausar o tempo de apresentação" aria-label="Iniciar cronômetro de cinco minutos"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 8v5l3 2M9 2h6"/></svg><span>5:00</span></button><button id="fullscreen" class="icon-button" title="Tela cheia · F" aria-label="Tela cheia"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M21 16v5h-5M3 16v5h5"/></svg></button></div>
+  </header>
+  <main id="slide" tabindex="-1" aria-label="Slide da apresentação"></main>
+  <aside id="notes" hidden aria-label="Roteiro de fala"></aside>
+  <footer class="deck-footer">
+    <div class="footer-meta"><span id="counter">01 / 06</span><span id="section"></span><button id="notes-toggle" title="Mostrar roteiro de fala · N" aria-expanded="false" aria-controls="notes">Roteiro <kbd>N</kbd></button></div>
+    <nav id="slide-dots" aria-label="Ir para slide"></nav>
+    <div class="navigation"><button id="previous" class="icon-button" aria-label="Etapa anterior" title="Voltar · ←"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button><span id="step-counter"></span><button id="next" class="next">Próxima etapa <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button></div>
+  </footer>
+  <div id="progress" aria-hidden="true"><span></span></div>
+  <p id="announcement" class="sr-only" aria-live="polite"></p>
+</body>
+</html>

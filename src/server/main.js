@@ -123,9 +123,11 @@ export async function createAppServer(options = {}) {
     try {
       const path = request.url.split('?')[0];
       const isBoardLink = /^\/boards\/[^/]+\/?$/.test(path);
-      requestedPath = request.url === '/' || isBoardLink
-        ? 'index.html'
-        : decodeURIComponent(request.url.slice(1).split('?')[0]);
+      requestedPath = /^\/apresentacao\/?$/.test(path)
+        ? 'apresentacao.html'
+        : path === '/' || isBoardLink
+          ? 'index.html'
+          : decodeURIComponent(request.url.slice(1).split('?')[0]);
     } catch {
       response.writeHead(400).end();
       return;
