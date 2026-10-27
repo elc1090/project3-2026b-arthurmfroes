@@ -11,3 +11,7 @@
 ## 3. Entrega
 
 - [x] 3.1 Executar regressões de foundation, auth e signaling, validar a change e registrar evidências.
+
+## 4. Branch de entrega
+
+- [x] 4.1 Após a aprovação da integração na main, alinhar Blueprint e documentação à main; verificar o YAML, as referências atuais de deploy e a validação da change, preservando o README da disciplina em edição.

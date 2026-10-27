@@ -33,3 +33,7 @@ A saída de inicialização confirmou HOST e PORT. `/health` respondeu 200; cada
 ## Limites
 
 Não houve execução na infraestrutura Render nem alteração do serviço remoto. A compatibilidade do ambiente nativo foi verificada com instalação limpa em Linux e Node 24.21.0. A perda de dados locais no Render Free continua uma limitação conhecida e documentada; não houve migração de contas, SQLite ou imagens para serviço externo.
+
+## Integração na main
+
+Aprovada pelo usuário após o deploy. A main foi avançada de 4f53f9b para de177ab por fast-forward, sem conflitos. As alterações locais de README e checkpoint foram guardadas temporariamente e restauradas após a troca de branch; não entram no commit de integração. O Blueprint foi lido pelo parser YAML com branch igual a main, o guia de deploy foi conferido com a mesma branch e a validação estrita do OpenSpec passou novamente. Não foram repetidos os testes de runtime porque esta etapa altera apenas a branch de deploy e documentos, sem mudar o código aprovado.

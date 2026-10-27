@@ -8,7 +8,7 @@ Em Settings, use os seguintes valores:
 
 | Campo | Valor |
 | --- | --- |
-| Branch | `presentation/static-whiteboard` |
+| Branch | `main` |
 | Root Directory | vazio, raiz do repositório |
 | Build Command | `npm ci --include=dev && npm run build:client` |
 | Start Command | `node src/server/main.js` |

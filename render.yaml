@@ -3,7 +3,7 @@ services:
     name: whiteboard-t3
     runtime: node
     plan: free
-    branch: presentation/static-whiteboard
+    branch: main
     buildCommand: npm ci --include=dev && npm run build:client
     startCommand: node src/server/main.js
     healthCheckPath: /health
