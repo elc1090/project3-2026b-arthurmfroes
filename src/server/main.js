@@ -163,5 +163,6 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const db = await openDatabase();
   const server = await createAppServer({ db });
   const port = Number(process.env.PORT ?? 3000);
-  server.listen(port, '127.0.0.1', () => console.log(`Whiteboard T3 ouvindo em http://127.0.0.1:${port}`));
+  const host = process.env.HOST ?? '0.0.0.0';
+  server.listen(port, host, () => console.log(`Whiteboard T3 ouvindo em http://${host}:${port}`));
 }

@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: whiteboard-t3
+    runtime: node
+    plan: free
+    branch: presentation/static-whiteboard
+    buildCommand: npm ci --include=dev && npm run build:client
+    startCommand: node src/server/main.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: TRUST_PROXY
+        value: "true"
+      - key: SIGNALING_SECRET
+        generateValue: true
